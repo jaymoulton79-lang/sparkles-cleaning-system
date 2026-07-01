@@ -429,10 +429,10 @@ def initialise():
         if not (admin_email and admin_email["value"]) and not (admin_hash and admin_hash["value"]):
             conn.execute("UPDATE app_config SET value=?,updated_at=? WHERE key='ADMIN_EMAIL'", (BOOTSTRAP_ADMIN_EMAIL, utcnow().isoformat()))
             admin_email = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_EMAIL'").fetchone()
-        if (admin_email and admin_email["value"].strip().lower() == BOOTSTRAP_ADMIN_EMAIL.lower()
-                and not (admin_hash and admin_hash["value"]) and BOOTSTRAP_ADMIN_PASSWORD):
+        if BOOTSTRAP_ADMIN_PASSWORD:
+            conn.execute("UPDATE app_config SET value=?,updated_at=? WHERE key='ADMIN_EMAIL'", (BOOTSTRAP_ADMIN_EMAIL, utcnow().isoformat()))
             conn.execute("UPDATE app_config SET value=?,is_secret=1,updated_at=? WHERE key='ADMIN_PASSWORD_HASH'", (hash_password(BOOTSTRAP_ADMIN_PASSWORD), utcnow().isoformat()))
-            logger.info("Bootstrap admin password created because no admin password was configured")
+            logger.info("Bootstrap admin password updated from BOOTSTRAP_ADMIN_PASSWORD")
         automation.initialise(conn)
         existing = conn.execute("SELECT id,clean_type,bedrooms,bathrooms FROM bookings WHERE total_amount=0").fetchall()
         for booking in existing:
