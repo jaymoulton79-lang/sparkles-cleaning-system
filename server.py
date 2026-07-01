@@ -14,6 +14,7 @@ import urllib.request
 import smtplib
 import logging
 import sys
+import secrets
 from email.message import EmailMessage
 import automation
 from datetime import datetime, timedelta, timezone
@@ -39,6 +40,10 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
 ADMIN_SETUP_TOKEN = os.environ.get("ADMIN_SETUP_TOKEN", "")
+SESSION_COOKIE = "sparkles_session"
+PASSWORD_ITERATIONS = 260000
+SESSION_DAYS = 14
+RESET_TOKEN_MINUTES = 60
 
 
 class JsonFormatter(logging.Formatter):
@@ -62,6 +67,58 @@ POSTCODE_CENTRES = {
     "CB22": (52.126, 0.120), "CB23": (52.215, -0.018), "CB24": (52.290, 0.083),
     "CB25": (52.260, 0.240)
 }
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+def hash_password(password):
+    if not password or len(password) < 8:
+        raise ValueError("Password must be at least 8 characters.")
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), PASSWORD_ITERATIONS)
+    return f"pbkdf2_sha256${PASSWORD_ITERATIONS}${salt}${digest.hex()}"
+
+
+def verify_password(password, stored):
+    try:
+        algorithm, iterations, salt, expected = stored.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(iterations)).hex()
+        return hmac.compare_digest(digest, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+def token_hash(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def public_url():
+    return runtime_setting("PUBLIC_URL", PUBLIC_URL).rstrip("/")
+
+
+def send_auth_email(recipient, subject, body):
+    smtp_host = runtime_setting("SMTP_HOST", SMTP_HOST)
+    if not smtp_host:
+        logger.info(json.dumps({"auth_email_preview": {"recipient": recipient, "subject": subject, "body": body}}))
+        return "Preview"
+    message = EmailMessage()
+    message["From"], message["To"], message["Subject"] = runtime_setting("SMTP_FROM", SMTP_FROM), recipient, subject
+    message.set_content(body)
+    with smtplib.SMTP(smtp_host, int(runtime_setting("SMTP_PORT", str(SMTP_PORT))), timeout=20) as smtp:
+        smtp.starttls()
+        smtp_user = runtime_setting("SMTP_USER", SMTP_USER)
+        if smtp_user:
+            smtp.login(smtp_user, runtime_setting("SMTP_PASSWORD", SMTP_PASSWORD))
+        smtp.send_message(message)
+    return "Sent"
+
+
+def admin_configured():
+    return bool(runtime_setting("ADMIN_EMAIL", "") and runtime_setting("ADMIN_PASSWORD_HASH", ""))
 
 
 def postcode_district(postcode):
@@ -296,6 +353,8 @@ def initialise():
         for column, definition in payment_columns.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE bookings ADD COLUMN {column} {definition}")
+        if "customer_id" not in columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN customer_id INTEGER REFERENCES customers(id)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cleaners (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -313,6 +372,34 @@ def initialise():
                 created_at TEXT NOT NULL
             )
         """)
+        cleaner_columns = {row[1] for row in conn.execute("PRAGMA table_info(cleaners)")}
+        if "password_hash" not in cleaner_columns:
+            conn.execute("ALTER TABLE cleaners ADD COLUMN password_hash TEXT")
+        conn.execute("""CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
+            token_hash TEXT PRIMARY KEY,
+            role TEXT NOT NULL,
+            subject_id INTEGER,
+            email TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            token_hash TEXT PRIMARY KEY,
+            role TEXT NOT NULL,
+            subject_id INTEGER,
+            email TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            created_at TEXT NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             booking_id INTEGER NOT NULL REFERENCES bookings(id),
@@ -332,7 +419,7 @@ def initialise():
             ("STRIPE_SECRET_KEY", "", 1), ("STRIPE_WEBHOOK_SECRET", "", 1),
             ("SMTP_HOST", "", 0), ("SMTP_PORT", "587", 0), ("SMTP_USER", "", 0),
             ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("REVIEW_URL", "", 0),
-            ("LOGO_URL", "", 0)
+            ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1)
         ]
         conn.executemany("INSERT OR IGNORE INTO app_config(key,value,is_secret,updated_at) VALUES (?,?,?,?)", [(k,v,s,datetime.now(timezone.utc).isoformat()) for k,v,s in defaults])
         automation.initialise(conn)
@@ -356,12 +443,73 @@ class Handler(BaseHTTPRequestHandler):
             return hmac.compare_digest(configured, supplied)
         return self.client_address[0] in ("127.0.0.1", "::1")
 
-    def send_json(self, data, status=200):
+    def cookies(self):
+        values = {}
+        for part in self.headers.get("Cookie", "").split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                values[key] = urllib.parse.unquote(value)
+        return values
+
+    def current_session(self):
+        token = self.cookies().get(SESSION_COOKIE, "")
+        if not token:
+            return None
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM sessions WHERE token_hash=? AND expires_at>?", (token_hash(token), utcnow().isoformat())).fetchone()
+        return dict(row) if row else None
+
+    def is_admin(self):
+        session = self.current_session()
+        return bool(session and session["role"] == "admin")
+
+    def is_cleaner(self):
+        session = self.current_session()
+        return bool(session and session["role"] == "cleaner")
+
+    def is_customer(self):
+        session = self.current_session()
+        return bool(session and session["role"] == "customer")
+
+    def require_admin(self):
+        if self.is_admin():
+            return True
+        self.send_json({"error": "Admin login required."}, 401)
+        return False
+
+    def create_session(self, role, subject_id, email):
+        token = secrets.token_urlsafe(32)
+        now = utcnow()
+        with connect() as conn:
+            conn.execute("INSERT INTO sessions(token_hash,role,subject_id,email,expires_at,created_at) VALUES (?,?,?,?,?,?)", (token_hash(token), role, subject_id, email, (now + timedelta(days=SESSION_DAYS)).isoformat(), now.isoformat()))
+        return token
+
+    def clear_session(self):
+        token = self.cookies().get(SESSION_COOKIE, "")
+        if token:
+            with connect() as conn:
+                conn.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
+
+    def auth_cookie(self, token):
+        return f"{SESSION_COOKIE}={urllib.parse.quote(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_DAYS * 86400}"
+
+    def expired_cookie(self):
+        return f"{SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+
+    def redirect(self, location):
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def send_json(self, data, status=200, headers=None):
         payload = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -390,12 +538,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"status": "ready", "database": "ok"})
             except sqlite3.Error:
                 return self.send_json({"status": "not_ready", "database": "error"}, 503)
+        if path == "/api/auth/me":
+            session = self.current_session()
+            return self.send_json({"authenticated": bool(session), "session": session})
         if path == "/api/config":
-            if not self.setup_authorized():
+            if not (self.is_admin() or self.setup_authorized()):
                 return self.send_json({"error": "Setup authorization required."}, 401)
             with connect() as conn:
                 rows = conn.execute("SELECT key,value,is_secret,updated_at FROM app_config ORDER BY key").fetchall()
             values = {row["key"]: ("••••••••" if row["is_secret"] and row["value"] else row["value"]) for row in rows}
+            values.pop("ADMIN_PASSWORD_HASH", None)
             values["SMTP_CONFIGURED"] = bool(runtime_setting("SMTP_HOST", SMTP_HOST))
             values["STRIPE_CONFIGURED"] = bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
             return self.send_json(values)
@@ -406,16 +558,22 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/job-offers/"):
             return self.get_job_offer(path.split("/")[3])
         if path == "/api/automations":
+            if not self.require_admin():
+                return
             with connect() as conn:
                 configs = [dict(row) for row in conn.execute("SELECT * FROM workflow_config ORDER BY rowid").fetchall()]
                 jobs = [dict(row) for row in conn.execute("""SELECT j.*,b.reference,b.name customer_name FROM automation_jobs j JOIN bookings b ON b.id=j.booking_id ORDER BY j.id DESC LIMIT 100""").fetchall()]
             return self.send_json({"config": configs, "jobs": jobs})
         if path.startswith("/api/bookings/") and path.endswith("/timeline"):
+            if not self.require_admin():
+                return
             booking_id = int(path.split("/")[3])
             with connect() as conn:
                 events = [dict(row) for row in conn.execute("SELECT * FROM booking_timeline WHERE booking_id=? ORDER BY id DESC", (booking_id,)).fetchall()]
             return self.send_json(events)
         if path == "/api/bookings":
+            if not self.require_admin():
+                return
             with connect() as conn:
                 rows = conn.execute("""SELECT b.*, c.name AS cleaner_name, c.phone AS cleaner_phone
                     FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id ORDER BY b.id DESC""").fetchall()
@@ -428,16 +586,21 @@ class Handler(BaseHTTPRequestHandler):
                 bookings.append(item)
             return self.send_json(bookings)
         if path == "/api/cleaners":
+            if not self.require_admin():
+                return
             with connect() as conn:
                 rows = conn.execute("SELECT * FROM cleaners ORDER BY active DESC, name").fetchall()
             cleaners = []
             for row in rows:
                 item = dict(row)
+                item.pop("password_hash", None)
                 item["availability"] = json.loads(item["availability"])
                 item["services"] = json.loads(item["services"])
                 cleaners.append(item)
             return self.send_json(cleaners)
         if path.startswith("/api/bookings/") and path.endswith("/matches"):
+            if not self.require_admin():
+                return
             try:
                 booking_id = int(path.split("/")[3])
                 with connect() as conn:
@@ -449,6 +612,7 @@ class Handler(BaseHTTPRequestHandler):
                 matches = []
                 for row in cleaners:
                     cleaner = dict(row)
+                    cleaner.pop("password_hash", None)
                     services = json.loads(cleaner["services"])
                     availability = json.loads(cleaner["availability"])
                     distance = distance_miles(booking["postcode"], cleaner["postcode"])
@@ -463,19 +627,66 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(sorted(matches, key=lambda c: (c["distance"], c["hourly_rate"])))
             except (ValueError, IndexError):
                 return self.send_json({"error": "Invalid booking."}, 400)
+        if path == "/api/customer/bookings":
+            session = self.current_session()
+            if not session or session["role"] != "customer":
+                return self.send_json({"error": "Customer login required."}, 401)
+            with connect() as conn:
+                rows = conn.execute("""SELECT b.*, c.name AS cleaner_name, c.phone AS cleaner_phone
+                    FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
+                    WHERE lower(b.email)=lower(?) OR b.customer_id=?
+                    ORDER BY b.id DESC""", (session["email"], session["subject_id"])).fetchall()
+            bookings = []
+            for row in rows:
+                item = dict(row)
+                item["photos"] = json.loads(item["photos"])
+                with connect() as payment_conn:
+                    item["payments"] = [dict(payment) for payment in payment_conn.execute("SELECT * FROM payments WHERE booking_id=? ORDER BY id DESC", (item["id"],)).fetchall()]
+                bookings.append(item)
+            return self.send_json(bookings)
+        if path == "/api/cleaner/jobs":
+            session = self.current_session()
+            if not session or session["role"] != "cleaner":
+                return self.send_json({"error": "Cleaner login required."}, 401)
+            with connect() as conn:
+                rows = conn.execute("SELECT * FROM bookings WHERE cleaner_id=? ORDER BY preferred_date DESC, preferred_time DESC", (session["subject_id"],)).fetchall()
+            bookings = []
+            for row in rows:
+                item = dict(row)
+                item["photos"] = json.loads(item["photos"])
+                bookings.append(item)
+            return self.send_json(bookings)
         if path.startswith("/uploads/"):
             name = Path(unquote(path)).name
             return self.send_file(UPLOADS / name)
         if path in ("/", "/index.html"):
             return self.send_file(PUBLIC / "index.html")
+        if path in ("/admin/login", "/admin/login/"):
+            return self.send_file(PUBLIC / "admin-login.html")
+        if path in ("/cleaner/login", "/cleaner/login/"):
+            return self.send_file(PUBLIC / "cleaner-login.html")
+        if path in ("/customer", "/customer/", "/customer/login", "/customer/login/"):
+            return self.send_file(PUBLIC / "customer.html")
+        if path in ("/reset-password", "/reset-password/"):
+            return self.send_file(PUBLIC / "reset-password.html")
         if path in ("/admin", "/admin/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "admin.html")
         if path in ("/admin/cleaners", "/admin/cleaners/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "cleaners-admin.html")
         if path in ("/admin/calendar", "/admin/calendar/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "calendar.html")
         if path in ("/cleaner", "/cleaner/"):
             return self.send_file(PUBLIC / "cleaner.html")
+        if path in ("/cleaner/dashboard", "/cleaner/dashboard/"):
+            if not self.is_cleaner():
+                return self.redirect("/cleaner/login")
+            return self.send_file(PUBLIC / "cleaner-dashboard.html")
         if path in ("/payment-success", "/payment-success/"):
             return self.send_file(PUBLIC / "payment-success.html")
         if path in ("/quote", "/quote/"):
@@ -483,9 +694,18 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/job-offer", "/job-offer/"):
             return self.send_file(PUBLIC / "job-offer.html")
         if path in ("/admin/automations", "/admin/automations/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "automations.html")
         if path in ("/admin/setup", "/admin/setup/"):
+            if admin_configured() and not self.is_admin():
+                return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
+        protected_files = {"/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/setup.html"}
+        if path in protected_files and not self.is_admin():
+            return self.redirect("/admin/login")
+        if path == "/cleaner-dashboard.html" and not self.is_cleaner():
+            return self.redirect("/cleaner/login")
         candidate = (PUBLIC / path.lstrip("/")).resolve()
         if PUBLIC.resolve() in candidate.parents:
             return self.send_file(candidate)
@@ -493,6 +713,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/api/admin/login":
+            return self.login_admin()
+        if path == "/api/cleaner/login":
+            return self.login_cleaner()
+        if path == "/api/customer/register":
+            return self.register_customer()
+        if path == "/api/customer/login":
+            return self.login_customer()
+        if path == "/api/auth/logout":
+            self.clear_session()
+            return self.send_json({"ok": True}, headers={"Set-Cookie": self.expired_cookie()})
+        if path == "/api/auth/password-reset/request":
+            return self.request_password_reset()
+        if path == "/api/auth/password-reset/confirm":
+            return self.confirm_password_reset()
         if path == "/api/config":
             return self.save_config()
         if path == "/api/stripe/webhook":
@@ -504,6 +739,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/job-offers/") and path.endswith("/complete"):
             return self.complete_job(path.split("/")[3])
         if path.startswith("/api/automations/") and path.endswith("/retry"):
+            if not self.require_admin():
+                return
             job_id = int(path.split("/")[3])
             return self.send_json({"ok": automation.retry(job_id)})
         if path == "/api/cleaners":
@@ -511,6 +748,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/bookings/") and path.endswith("/checkout"):
             return self.start_checkout(path)
         if path.startswith("/api/bookings/") and path.endswith("/assign"):
+            if not self.require_admin():
+                return
             return self.assign_cleaner(path)
         if path != "/api/bookings":
             return self.send_error(404)
@@ -550,6 +789,9 @@ class Handler(BaseHTTPRequestHandler):
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'New',?,?,?,?, 'Deposit Due',?,'Pending')
                 """, (reference, fields["name"], fields["phone"], fields["email"], fields["address"], fields["postcode"].upper(), fields["clean_type"], int(fields["bedrooms"]), int(fields["bathrooms"]), fields["preferred_date"], fields["preferred_time"], fields.get("notes", ""), json.dumps(photos), datetime.now(timezone.utc).isoformat(), total, deposit, total-deposit, quote_token))
                 booking_id = cursor.lastrowid
+                session = self.current_session()
+                if session and session["role"] == "customer" and session["email"].lower() == fields["email"].strip().lower():
+                    conn.execute("UPDATE bookings SET customer_id=? WHERE id=?", (session["subject_id"], booking_id))
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
             automation.timeline(booking_id, "Booking received", f"Quote calculated automatically: £{total/100:.2f}")
             automation.enqueue(booking_id, "send_quote")
@@ -564,6 +806,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         path = urlparse(self.path).path
         if path.startswith("/api/workflows/"):
+            if not self.require_admin():
+                return
             try:
                 step = path.split("/")[3]
                 data = self.read_json()
@@ -573,6 +817,8 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError, json.JSONDecodeError):
                 return self.send_json({"error": "Invalid workflow settings."}, 400)
         if path.startswith("/api/bookings/"):
+            if not self.require_admin():
+                return
             return self.update_booking(path)
         self.send_error(404)
 
@@ -582,12 +828,134 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Invalid request.")
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    def login_admin(self):
+        try:
+            data = self.read_json()
+            email = data.get("email", "").strip().lower()
+            password = data.get("password", "")
+            stored_email = runtime_setting("ADMIN_EMAIL", "").strip().lower()
+            stored_hash = runtime_setting("ADMIN_PASSWORD_HASH", "")
+            if not stored_email or not stored_hash:
+                return self.send_json({"error": "Admin login is not set up yet. Open setup with your setup token first."}, 409)
+            if email != stored_email or not verify_password(password, stored_hash):
+                return self.send_json({"error": "Invalid email or password."}, 401)
+            token = self.create_session("admin", None, email)
+            return self.send_json({"ok": True, "role": "admin"}, headers={"Set-Cookie": self.auth_cookie(token)})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def login_cleaner(self):
+        try:
+            data = self.read_json()
+            email = data.get("email", "").strip().lower()
+            password = data.get("password", "")
+            with connect() as conn:
+                cleaner = conn.execute("SELECT id,email,password_hash,active FROM cleaners WHERE lower(email)=lower(?)", (email,)).fetchone()
+            if not cleaner or not cleaner["password_hash"] or not verify_password(password, cleaner["password_hash"]):
+                return self.send_json({"error": "Invalid email or password."}, 401)
+            if not cleaner["active"]:
+                return self.send_json({"error": "This cleaner account is not active."}, 403)
+            token = self.create_session("cleaner", cleaner["id"], cleaner["email"])
+            return self.send_json({"ok": True, "role": "cleaner"}, headers={"Set-Cookie": self.auth_cookie(token)})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def register_customer(self):
+        try:
+            data = self.read_json()
+            name = data.get("name", "").strip()
+            email = data.get("email", "").strip().lower()
+            phone = data.get("phone", "").strip()
+            password = data.get("password", "")
+            if not name or not email or not password:
+                raise ValueError("Please enter your name, email and password.")
+            with connect() as conn:
+                cursor = conn.execute("INSERT INTO customers(name,phone,email,password_hash,created_at) VALUES (?,?,?,?,?)", (name, phone, email, hash_password(password), utcnow().isoformat()))
+                customer_id = cursor.lastrowid
+                conn.execute("UPDATE bookings SET customer_id=? WHERE lower(email)=lower(?) AND customer_id IS NULL", (customer_id, email))
+            token = self.create_session("customer", customer_id, email)
+            return self.send_json({"ok": True, "role": "customer"}, 201, headers={"Set-Cookie": self.auth_cookie(token)})
+        except sqlite3.IntegrityError:
+            return self.send_json({"error": "A customer account already exists for that email."}, 409)
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def login_customer(self):
+        try:
+            data = self.read_json()
+            email = data.get("email", "").strip().lower()
+            password = data.get("password", "")
+            with connect() as conn:
+                customer = conn.execute("SELECT id,email,password_hash FROM customers WHERE lower(email)=lower(?)", (email,)).fetchone()
+            if not customer or not verify_password(password, customer["password_hash"]):
+                return self.send_json({"error": "Invalid email or password."}, 401)
+            token = self.create_session("customer", customer["id"], customer["email"])
+            return self.send_json({"ok": True, "role": "customer"}, headers={"Set-Cookie": self.auth_cookie(token)})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def request_password_reset(self):
+        try:
+            data = self.read_json()
+            role = data.get("role", "").strip().lower()
+            email = data.get("email", "").strip().lower()
+            if role not in {"admin", "cleaner", "customer"} or not email:
+                raise ValueError("Choose an account type and enter your email.")
+            subject_id = None
+            exists = False
+            if role == "admin":
+                exists = bool(runtime_setting("ADMIN_EMAIL", "").strip().lower() == email and runtime_setting("ADMIN_PASSWORD_HASH", ""))
+            elif role == "cleaner":
+                with connect() as conn:
+                    row = conn.execute("SELECT id FROM cleaners WHERE lower(email)=lower(?)", (email,)).fetchone()
+                exists, subject_id = bool(row), row["id"] if row else None
+            else:
+                with connect() as conn:
+                    row = conn.execute("SELECT id FROM customers WHERE lower(email)=lower(?)", (email,)).fetchone()
+                exists, subject_id = bool(row), row["id"] if row else None
+            response = {"ok": True, "message": "If that account exists, a reset link has been sent."}
+            if exists:
+                token = secrets.token_urlsafe(32)
+                expires = utcnow() + timedelta(minutes=RESET_TOKEN_MINUTES)
+                with connect() as conn:
+                    conn.execute("INSERT INTO password_reset_tokens(token_hash,role,subject_id,email,expires_at,created_at) VALUES (?,?,?,?,?,?)", (token_hash(token), role, subject_id, email, expires.isoformat(), utcnow().isoformat()))
+                link = f"{public_url()}/reset-password?token={urllib.parse.quote(token)}"
+                status = send_auth_email(email, "Reset your Sparkles password", f"Use this secure link within {RESET_TOKEN_MINUTES} minutes to reset your password:\n\n{link}\n\nIf you did not request this, you can ignore this email.")
+                if status == "Preview":
+                    response["reset_link"] = link
+            return self.send_json(response)
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def confirm_password_reset(self):
+        try:
+            data = self.read_json()
+            token = data.get("token", "")
+            password = data.get("password", "")
+            with connect() as conn:
+                reset = conn.execute("SELECT * FROM password_reset_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at>?", (token_hash(token), utcnow().isoformat())).fetchone()
+                if not reset:
+                    return self.send_json({"error": "Reset link is invalid or has expired."}, 400)
+                password_hash = hash_password(password)
+                if reset["role"] == "admin":
+                    conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_PASSWORD_HASH',?,?,?)
+                        ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (password_hash, 1, utcnow().isoformat()))
+                elif reset["role"] == "cleaner":
+                    conn.execute("UPDATE cleaners SET password_hash=? WHERE id=?", (password_hash, reset["subject_id"]))
+                else:
+                    conn.execute("UPDATE customers SET password_hash=? WHERE id=?", (password_hash, reset["subject_id"]))
+                conn.execute("UPDATE password_reset_tokens SET used_at=? WHERE token_hash=?", (utcnow().isoformat(), token_hash(token)))
+                conn.execute("DELETE FROM sessions WHERE role=? AND email=?", (reset["role"], reset["email"]))
+            return self.send_json({"ok": True})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
     def save_config(self):
-        if not self.setup_authorized():
+        if not (self.is_admin() or self.setup_authorized()):
             return self.send_json({"error": "Setup authorization required."}, 401)
         try:
             data = self.read_json()
-            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","REVIEW_URL"}
+            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","REVIEW_URL","ADMIN_EMAIL"}
             secret_keys = {"STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_PASSWORD"}
             with connect() as conn:
                 for key in allowed:
@@ -596,6 +964,10 @@ class Handler(BaseHTTPRequestHandler):
                     value = str(data[key]).strip()
                     conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES (?,?,?,?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (key, value, 1 if key in secret_keys else 0, datetime.now(timezone.utc).isoformat()))
+                admin_password = data.get("ADMIN_PASSWORD", "")
+                if admin_password:
+                    conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_PASSWORD_HASH',?,?,?)
+                        ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (hash_password(admin_password), 1, utcnow().isoformat()))
                 logo = data.get("LOGO_DATA", "")
                 if logo:
                     header, encoded = logo.split(",", 1)
@@ -691,7 +1063,7 @@ class Handler(BaseHTTPRequestHandler):
     def create_cleaner(self):
         try:
             data = self.read_json()
-            required = ["name", "phone", "email", "postcode", "travel_radius", "hourly_rate", "availability", "services", "dbs_status", "insurance_status"]
+            required = ["name", "phone", "email", "password", "postcode", "travel_radius", "hourly_rate", "availability", "services", "dbs_status", "insurance_status"]
             if any(not data.get(key) for key in required):
                 raise ValueError("Please complete all required fields.")
             radius, rate = float(data["travel_radius"]), float(data["hourly_rate"])
@@ -699,8 +1071,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Travel radius and hourly rate must be greater than zero.")
             with connect() as conn:
                 cursor = conn.execute("""INSERT INTO cleaners
-                    (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), data["postcode"].strip().upper(), radius, rate, json.dumps(data["availability"]), json.dumps(data["services"]), data["dbs_status"], data["insurance_status"], datetime.now(timezone.utc).isoformat()))
+                    (name,phone,email,password_hash,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), hash_password(data["password"]), data["postcode"].strip().upper(), radius, rate, json.dumps(data["availability"]), json.dumps(data["services"]), data["dbs_status"], data["insurance_status"], datetime.now(timezone.utc).isoformat()))
             self.send_json({"ok": True, "id": cursor.lastrowid}, 201)
         except sqlite3.IntegrityError:
             self.send_json({"error": "An account already exists for that email address."}, 409)

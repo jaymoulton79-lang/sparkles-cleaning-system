@@ -24,4 +24,5 @@ async function assign(bookingId,cleanerId,button){
   try{const r=await fetch(`/api/bookings/${bookingId}/assign`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cleaner_id:cleanerId})});const result=await r.json();if(!r.ok)throw new Error(result.error);closeModal();await load()}catch(e){button.disabled=false;button.textContent='Try again';alert(e.message)}
 }
 function closeModal(){document.querySelector('#modalRoot').innerHTML=''}function backdropClose(e){if(e.target.classList.contains('modal-backdrop'))closeModal()}
+document.querySelector('#adminLogout')?.addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/admin/login'});
 load();

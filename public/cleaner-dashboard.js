@@ -1,0 +1,5 @@
+const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const pretty=d=>new Date(d+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+async function load(){const r=await fetch('/api/cleaner/jobs'),jobs=await r.json();if(!r.ok){location.href='/cleaner/login';return}document.querySelector('#jobs').innerHTML=jobs.length?`<table><thead><tr><th>Customer</th><th>Clean</th><th>Date</th><th>Address</th><th>Status</th></tr></thead><tbody>${jobs.map(j=>`<tr><td><strong>${esc(j.name)}</strong><div class="date-sub">${esc(j.phone)} · ${esc(j.email)}</div></td><td>${esc(j.clean_type)}<div class="date-sub">${j.bedrooms} bed · ${j.bathrooms} bath</div></td><td><strong>${pretty(j.preferred_date)}</strong><div class="date-sub">${esc(j.preferred_time)}</div></td><td>${esc(j.address)}, ${esc(j.postcode)}</td><td><span class="badge">${esc(j.status)}</span></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No assigned jobs yet.</div>'}
+document.querySelector('#logout').onclick=async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/cleaner/login'};
+load();
