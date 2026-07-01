@@ -679,6 +679,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(PUBLIC / "index.html")
         if path in ("/admin/login", "/admin/login/"):
             return self.send_file(PUBLIC / "admin-login.html")
+        if path in ("/admin/emergency-reset", "/admin/emergency-reset/"):
+            return self.send_file(PUBLIC / "admin-emergency-reset.html")
         if path in ("/cleaner/login", "/cleaner/login/"):
             return self.send_file(PUBLIC / "cleaner-login.html")
         if path in ("/customer", "/customer/", "/customer/login", "/customer/login/"):
@@ -731,6 +733,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/admin/login":
             return self.login_admin()
+        if path == "/api/admin/emergency-reset":
+            return self.emergency_admin_reset()
         if path == "/api/cleaner/login":
             return self.login_cleaner()
         if path == "/api/customer/register":
@@ -859,6 +863,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "Invalid email or password."}, 401)
             token = self.create_session("admin", None, email)
             return self.send_json({"ok": True, "role": "admin"}, headers={"Set-Cookie": self.auth_cookie(token)})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def emergency_admin_reset(self):
+        if not self.setup_authorized():
+            return self.send_json({"error": "ADMIN_SETUP_TOKEN is required."}, 401)
+        try:
+            data = self.read_json()
+            email = data.get("email", "").strip().lower()
+            password = data.get("password", "")
+            if email != "labcontractors@outlook.com":
+                raise ValueError("Emergency reset is restricted to labcontractors@outlook.com.")
+            password_hash = hash_password(password)
+            now = utcnow().isoformat()
+            with connect() as conn:
+                conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_EMAIL',?,?,?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (email, 0, now))
+                conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_PASSWORD_HASH',?,?,?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (password_hash, 1, now))
+                conn.execute("DELETE FROM sessions WHERE role='admin'")
+            logger.info("Emergency admin password reset completed")
+            return self.send_json({"ok": True})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
 
