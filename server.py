@@ -167,13 +167,17 @@ def stripe_request(path, data=None, method="POST"):
         raise ValueError(details.get("error", {}).get("message", "Stripe could not process the request."))
 
 
+def stripe_configured():
+    return bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
+
+
 def create_checkout(booking, payment_type):
     amount = booking["deposit_amount"] if payment_type == "deposit" else booking["balance_amount"]
     label = "25% cleaning deposit" if payment_type == "deposit" else "Cleaning invoice balance"
     return stripe_request("checkout/sessions", {
         "mode": "payment", "customer_email": booking["email"],
-        "success_url": f"{runtime_setting('PUBLIC_URL', PUBLIC_URL).rstrip('/')}/payment-success?session_id={{CHECKOUT_SESSION_ID}}&booking={booking['id']}",
-        "cancel_url": f"{runtime_setting('PUBLIC_URL', PUBLIC_URL).rstrip('/')}/?payment=cancelled", "client_reference_id": str(booking["id"]),
+        "success_url": f"{public_url()}/payment-success?session_id={{CHECKOUT_SESSION_ID}}&booking={booking['id']}",
+        "cancel_url": f"{public_url()}/?payment=cancelled&booking={booking['id']}", "client_reference_id": str(booking["id"]),
         "metadata[booking_id]": str(booking["id"]), "metadata[payment_type]": payment_type,
         "line_items[0][price_data][currency]": "gbp", "line_items[0][price_data][unit_amount]": str(amount),
         "line_items[0][price_data][product_data][name]": f"Sparkles Cleaning – {label}",
@@ -348,6 +352,8 @@ def initialise():
             "payment_status": "TEXT NOT NULL DEFAULT 'Deposit Due'",
             "stripe_customer_id": "TEXT",
             "stripe_invoice_id": "TEXT",
+            "deposit_checkout_session_id": "TEXT",
+            "deposit_checkout_url": "TEXT",
             "balance_payment_url": "TEXT",
             "quote_token": "TEXT",
             "quote_status": "TEXT NOT NULL DEFAULT 'Pending'"
@@ -834,8 +840,28 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("UPDATE bookings SET customer_id=? WHERE id=?", (session["subject_id"], booking_id))
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
             automation.timeline(booking_id, "Booking received", f"Quote calculated automatically: £{total/100:.2f}")
+            checkout_url, checkout_session_id, checkout_error = None, None, None
+            if stripe_configured():
+                try:
+                    checkout = create_checkout(booking, "deposit")
+                    checkout_url, checkout_session_id = checkout["url"], checkout["id"]
+                    with connect() as conn:
+                        conn.execute("UPDATE bookings SET deposit_checkout_session_id=?, deposit_checkout_url=? WHERE id=?", (checkout_session_id, checkout_url, booking_id))
+                    automation.timeline(booking_id, "Deposit checkout created", "Stripe Checkout link created for the 25% deposit")
+                except ValueError as error:
+                    checkout_error = str(error)
+                    automation.timeline(booking_id, "Deposit checkout failed", checkout_error, "Warning")
+            else:
+                checkout_error = "Stripe is not configured. Add STRIPE_SECRET_KEY before taking online deposits."
+                automation.timeline(booking_id, "Deposit checkout not created", checkout_error, "Warning")
             automation.enqueue(booking_id, "send_quote")
-            result = {"ok": True, "reference": reference, "booking_id": booking_id, "total_amount": total, "deposit_amount": deposit, "quote_status": "Queued"}
+            result = {
+                "ok": True, "reference": reference, "booking_id": booking_id,
+                "total_amount": total, "deposit_amount": deposit, "balance_amount": total-deposit,
+                "payment_status": "Deposit Due", "checkout_url": checkout_url,
+                "checkout_session_id": checkout_session_id, "checkout_error": checkout_error,
+                "quote_status": "Queued"
+            }
             self.send_json(result, 201)
         except (ValueError, TypeError) as error:
             self.send_json({"error": str(error)}, 400)
@@ -1063,9 +1089,14 @@ class Handler(BaseHTTPRequestHandler):
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
             if not booking:
                 return self.send_json({"error": "Booking not found."}, 404)
+            if payment_type == "deposit" and booking["payment_status"] in ("Deposit Paid", "Paid in Full"):
+                return self.send_json({"paid": True, "message": "Deposit has already been paid."})
             if payment_type == "balance" and booking["status"] != "Completed":
                 return self.send_json({"error": "The remaining balance is available after the job is completed."}, 409)
             session = create_checkout(booking, payment_type)
+            if payment_type == "deposit":
+                with connect() as conn:
+                    conn.execute("UPDATE bookings SET deposit_checkout_session_id=?, deposit_checkout_url=? WHERE id=?", (session["id"], session["url"], booking_id))
             self.send_json({"url": session["url"], "session_id": session["id"]})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, 400)
@@ -1081,6 +1112,8 @@ class Handler(BaseHTTPRequestHandler):
             payment_type = session.get("metadata", {}).get("payment_type", "deposit")
             with connect() as conn:
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+                if not booking:
+                    return self.send_json({"error": "Booking not found for this Stripe session."}, 404)
                 amount = booking["deposit_amount"] if payment_type == "deposit" else booking["balance_amount"]
                 record_payment(conn, booking_id, payment_type, amount, session.get("payment_intent") or session_id)
             automation.timeline(booking_id, "Payment received", f"{payment_type.title()} payment confirmed: £{amount/100:.2f}")
@@ -1111,6 +1144,8 @@ class Handler(BaseHTTPRequestHandler):
                 payment_type = session.get("metadata", {}).get("payment_type", "deposit")
                 with connect() as conn:
                     booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+                    if not booking:
+                        return self.send_json({"error": "Booking not found for this Stripe event."}, 404)
                     amount = booking["deposit_amount"] if payment_type == "deposit" else booking["balance_amount"]
                     record_payment(conn, booking_id, payment_type, amount, session.get("payment_intent") or session["id"])
                 automation.timeline(booking_id, "Payment received", f"{payment_type.title()} payment confirmed by Stripe webhook")
@@ -1121,6 +1156,8 @@ class Handler(BaseHTTPRequestHandler):
                 if booking_id:
                     with connect() as conn:
                         booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+                        if not booking:
+                            return self.send_json({"error": "Booking not found for this Stripe invoice."}, 404)
                         record_payment(conn, booking_id, "balance", booking["balance_amount"], invoice["id"])
                     automation.timeline(booking_id, "Final payment received", "Stripe invoice paid in full")
                     automation.enqueue(booking_id, "send_review")

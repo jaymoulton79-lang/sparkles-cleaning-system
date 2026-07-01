@@ -1,1 +1,65 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Book a trusted home clean with Sparkles Cleaning Cambridge."><title>Book a clean | Sparkles Cleaning Cambridge</title><link rel="stylesheet" href="/styles.css"></head><body><div class="topbar"></div><header><nav class="nav"><a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Cambridge</small></span></a><a class="admin-link" href="/admin">Admin dashboard →</a></nav></header><main class="hero"><section class="intro"><div class="eyebrow">A brighter home starts here</div><h1>Tell us what needs a little sparkle.</h1><p>Send us the details of your clean and our Cambridge team will be in touch to confirm availability and your quote.</p><div class="promise"><div><span class="tick">✓</span>No payment needed today</div><div><span class="tick">✓</span>Local, friendly Cambridge team</div><div><span class="tick">✓</span>We’ll confirm everything with you</div></div></section><section class="card" id="formCard"><div class="card-head"><div><h2>Request a clean</h2></div><div class="step">Takes 2–3 minutes</div></div><div id="alert" class="alert"></div><form id="bookingForm" enctype="multipart/form-data"><div class="section-title">Your details</div><div class="grid"><div class="field"><label for="name">Full name <span>*</span></label><input id="name" name="name" autocomplete="name" required placeholder="e.g. Amelia Hart"></div><div class="field"><label for="phone">Phone number <span>*</span></label><input id="phone" name="phone" type="tel" autocomplete="tel" required placeholder="07123 456789"></div><div class="field full"><label for="email">Email address <span>*</span></label><input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div></div><div class="section-title">Your home</div><div class="grid"><div class="field full"><label for="address">Address <span>*</span></label><input id="address" name="address" autocomplete="street-address" required placeholder="House number and street"></div><div class="field"><label for="postcode">Postcode <span>*</span></label><input id="postcode" name="postcode" autocomplete="postal-code" required placeholder="CB1 2AB"></div><div class="field"><label for="clean_type">Type of clean <span>*</span></label><select id="clean_type" name="clean_type" required><option value="">Choose one</option><option>Regular clean</option><option>Deep clean</option><option>End of tenancy</option><option>One-off clean</option></select></div><div class="field"><label for="bedrooms">Bedrooms <span>*</span></label><select id="bedrooms" name="bedrooms" required><option value="">Select</option><option value="0">Studio / none</option><option value="1">1 bedroom</option><option value="2">2 bedrooms</option><option value="3">3 bedrooms</option><option value="4">4 bedrooms</option><option value="5">5+ bedrooms</option></select></div><div class="field"><label for="bathrooms">Bathrooms <span>*</span></label><select id="bathrooms" name="bathrooms" required><option value="">Select</option><option value="1">1 bathroom</option><option value="2">2 bathrooms</option><option value="3">3 bathrooms</option><option value="4">4+ bathrooms</option></select></div></div><div class="section-title">When & what</div><div class="grid"><div class="field"><label for="preferred_date">Preferred date <span>*</span></label><input id="preferred_date" name="preferred_date" type="date" required></div><div class="field"><label for="preferred_time">Preferred time <span>*</span></label><select id="preferred_time" name="preferred_time" required><option value="">Choose a time</option><option>Morning (8am–12pm)</option><option>Afternoon (12pm–4pm)</option><option>Late afternoon (4pm–6pm)</option><option>Flexible</option></select></div><div class="field full"><label for="notes">Anything else we should know?</label><textarea id="notes" name="notes" placeholder="Tell us about access, pets, priority rooms, or anything that will help us prepare."></textarea></div><div class="field full"><label>Photos <small>(optional)</small></label><label class="upload" for="photos"><strong>Add photos</strong> of the rooms or areas to clean<br>JPG, PNG or WebP · up to 5MB each<input id="photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><div id="files" class="files"></div></div></div><button class="submit" id="submit" type="submit">Send booking request</button><p class="fine">We’ll only use your details to arrange this cleaning request.</p></form></section></main><footer>© 2026 Sparkles Cleaning Cambridge · Made for calmer, cleaner homes.</footer><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Book a trusted home clean with Sparkles Cleaning Cambridge.">
+  <title>Book a clean | Sparkles Cleaning Cambridge</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header>
+    <nav class="nav">
+      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Cambridge</small></span></a>
+      <a class="admin-link" href="/admin">Admin dashboard →</a>
+    </nav>
+  </header>
+  <main class="hero">
+    <section class="intro">
+      <div class="eyebrow">A brighter home starts here</div>
+      <h1>Tell us what needs a little sparkle.</h1>
+      <p>Send us the details of your clean, get an instant quote, and pay the 25% deposit securely by Stripe to confirm.</p>
+      <div class="promise">
+        <div><span class="tick">✓</span>Secure Stripe deposit</div>
+        <div><span class="tick">✓</span>Local, friendly Cambridge team</div>
+        <div><span class="tick">✓</span>We’ll confirm everything with you</div>
+      </div>
+    </section>
+    <section class="card" id="formCard">
+      <div class="card-head">
+        <div><h2>Request a clean</h2></div>
+        <div class="step">Takes 2–3 minutes</div>
+      </div>
+      <div id="alert" class="alert"></div>
+      <form id="bookingForm" enctype="multipart/form-data">
+        <div class="section-title">Your details</div>
+        <div class="grid">
+          <div class="field"><label for="name">Full name <span>*</span></label><input id="name" name="name" autocomplete="name" required placeholder="e.g. Amelia Hart"></div>
+          <div class="field"><label for="phone">Phone number <span>*</span></label><input id="phone" name="phone" type="tel" autocomplete="tel" required placeholder="07123 456789"></div>
+          <div class="field full"><label for="email">Email address <span>*</span></label><input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
+        </div>
+        <div class="section-title">Your home</div>
+        <div class="grid">
+          <div class="field full"><label for="address">Address <span>*</span></label><input id="address" name="address" autocomplete="street-address" required placeholder="House number and street"></div>
+          <div class="field"><label for="postcode">Postcode <span>*</span></label><input id="postcode" name="postcode" autocomplete="postal-code" required placeholder="CB1 2AB"></div>
+          <div class="field"><label for="clean_type">Type of clean <span>*</span></label><select id="clean_type" name="clean_type" required><option value="">Choose one</option><option>Regular clean</option><option>Deep clean</option><option>End of tenancy</option><option>One-off clean</option></select></div>
+          <div class="field"><label for="bedrooms">Bedrooms <span>*</span></label><select id="bedrooms" name="bedrooms" required><option value="">Select</option><option value="0">Studio / none</option><option value="1">1 bedroom</option><option value="2">2 bedrooms</option><option value="3">3 bedrooms</option><option value="4">4 bedrooms</option><option value="5">5+ bedrooms</option></select></div>
+          <div class="field"><label for="bathrooms">Bathrooms <span>*</span></label><select id="bathrooms" name="bathrooms" required><option value="">Select</option><option value="1">1 bathroom</option><option value="2">2 bathrooms</option><option value="3">3 bathrooms</option><option value="4">4+ bathrooms</option></select></div>
+        </div>
+        <div class="section-title">When & what</div>
+        <div class="grid">
+          <div class="field"><label for="preferred_date">Preferred date <span>*</span></label><input id="preferred_date" name="preferred_date" type="date" required></div>
+          <div class="field"><label for="preferred_time">Preferred time <span>*</span></label><select id="preferred_time" name="preferred_time" required><option value="">Choose a time</option><option>Morning (8am–12pm)</option><option>Afternoon (12pm–4pm)</option><option>Late afternoon (4pm–6pm)</option><option>Flexible</option></select></div>
+          <div class="field full"><label for="notes">Anything else we should know?</label><textarea id="notes" name="notes" placeholder="Tell us about access, pets, priority rooms, or anything that will help us prepare."></textarea></div>
+          <div class="field full"><label>Photos <small>(optional)</small></label><label class="upload" for="photos"><strong>Add photos</strong> of the rooms or areas to clean<br>JPG, PNG or WebP · up to 5MB each<input id="photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><div id="files" class="files"></div></div>
+        </div>
+        <button class="submit" id="submit" type="submit">Book and create deposit link</button>
+        <p class="fine">Your booking remains Deposit Due until Stripe confirms payment.</p>
+      </form>
+    </section>
+  </main>
+  <footer>© 2026 Sparkles Cleaning Cambridge · Made for calmer, cleaner homes.</footer>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,7 +1,9 @@
 const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
 const prettyDate=v=>new Date(`${v}T12:00:00`).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 const stamp=v=>v?new Date(v).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'—';
+const money=p=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((p||0)/100);
 const gallery=photos=>photos?.length?`<div class="photos">${photos.map(p=>`<a href="${esc(p.url)}" target="_blank"><img src="${esc(p.url)}" alt="${esc(p.name)}"></a>`).join('')}</div>`:'None uploaded';
+const paymentStatusClass=status=>status==='Deposit Paid'||status==='Paid in Full'?'paid':status==='Deposit Due'?'due':'';
 let bookings=[];
 
 async function load(){
@@ -12,14 +14,23 @@ async function load(){
     document.querySelector('#total').textContent=bookings.length;
     document.querySelector('#newCount').textContent=bookings.filter(x=>x.status==='New').length;
     document.querySelector('#assignedCount').textContent=bookings.filter(x=>['Assigned','Accepted','In Progress'].includes(x.status)).length;
-    if(!bookings.length){document.querySelector('#list').innerHTML='<div class="empty"><strong>No bookings yet</strong><br>Your first request will appear here.</div>';return}
+    if(!bookings.length){
+      document.querySelector('#list').innerHTML='<div class="empty"><strong>No bookings yet</strong><br>Your first request will appear here.</div>';
+      return;
+    }
     document.querySelector('#list').innerHTML=`<table><thead><tr><th>Customer</th><th>Clean</th><th>Preferred date</th><th>Location</th><th>Status</th><th></th></tr></thead><tbody>${bookings.map((b,i)=>`
       <tr>
         <td class="customer"><strong>${esc(b.name)}</strong><span>${esc(b.phone)} · ${esc(b.email)}</span></td>
         <td><strong>${esc(b.clean_type)}</strong><div class="date-sub">${b.bedrooms} bed · ${b.bathrooms} bath</div></td>
         <td><strong>${prettyDate(b.preferred_date)}</strong><div class="date-sub">${esc(b.preferred_time)}</div></td>
         <td>${esc(b.postcode)}</td>
-        <td><span class="badge ${['Assigned','Accepted','In Progress'].includes(b.status)?'status-assigned':''}">${esc(b.status)}</span>${b.cleaner_name?`<div class="assigned-to">${esc(b.cleaner_name)}</div>`:''}</td>
+        <td>
+          <span class="badge ${['Assigned','Accepted','In Progress'].includes(b.status)?'status-assigned':''}">${esc(b.status)}</span>
+          <div class="payment-badge ${paymentStatusClass(b.payment_status)}">${esc(b.payment_status)}</div>
+          ${b.cleaner_name?`<div class="assigned-to">${esc(b.cleaner_name)}</div>`:''}
+          ${b.deposit_checkout_url&&b.payment_status==='Deposit Due'?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Open deposit checkout</a>`:''}
+          ${b.balance_payment_url?`<br><a class="balance-link" href="${esc(b.balance_payment_url)}" target="_blank">Pay balance online</a>`:''}
+        </td>
         <td><button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button><br><button class="row-button" onclick="toggle(${i})">View details</button></td>
       </tr>
       <tr class="detail-row" id="detail-${i}"><td class="detail" colspan="6"><div class="detail-grid">
@@ -32,17 +43,15 @@ async function load(){
         <div class="detail-block"><span>Cleaner notes</span>${esc(b.cleaner_notes)||'No cleaner notes yet'}</div>
         <div class="detail-block"><span>Before photos</span>${gallery(b.before_photos)}</div>
         <div class="detail-block"><span>After photos</span>${gallery(b.after_photos)}</div>
+        <div class="detail-block"><span>Price & payments</span><strong>${money(b.total_amount)} total</strong><br>Deposit: ${money(b.deposit_amount)}<br>Payment status: ${esc(b.payment_status)}${b.deposit_checkout_url?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Deposit checkout link</a>`:'<br>No deposit checkout link stored'}${paymentHistory(b)}</div>
       </div></td></tr>`).join('')}</tbody></table>`;
-    document.querySelectorAll('tbody tr:not(.detail-row)').forEach((row,index)=>{
-      const b=bookings[index],paid=b.payment_status==='Deposit Paid'||b.payment_status==='Paid in Full';
-      row.children[4].insertAdjacentHTML('beforeend',`<div class="payment-badge ${paid?'paid':''}">${esc(b.payment_status)}</div>${b.balance_payment_url?`<br><a class="balance-link" href="${esc(b.balance_payment_url)}" target="_blank">Pay balance online</a>`:''}`);
-      const detail=row.nextElementSibling?.querySelector('.detail-grid');
-      if(detail){
-        const history=b.payments.length?`<ul class="payment-history">${b.payments.map(p=>`<li>${esc(p.payment_type==='deposit'?'Deposit':'Balance')} · £${(p.amount/100).toFixed(2)} · ${esc(p.status)}</li>`).join('')}</ul>`:'No payments recorded';
-        detail.insertAdjacentHTML('beforeend',`<div class="detail-block"><span>Price & payments</span><strong>£${(b.total_amount/100).toFixed(2)} total</strong>${history}</div>`);
-      }
-    });
-  }catch(e){document.querySelector('#list').innerHTML='<div class="empty">Could not load bookings. Please refresh.</div>'}
+  }catch(e){
+    document.querySelector('#list').innerHTML='<div class="empty">Could not load bookings. Please refresh.</div>';
+  }
+}
+
+function paymentHistory(b){
+  return b.payments?.length?`<ul class="payment-history">${b.payments.map(p=>`<li>${esc(p.payment_type==='deposit'?'Deposit':'Balance')} · ${money(p.amount)} · ${esc(p.status)}</li>`).join('')}</ul>`:'<div class="date-sub">No payments recorded</div>';
 }
 
 function toggle(i){document.querySelector(`#detail-${i}`).classList.toggle('open')}

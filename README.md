@@ -35,7 +35,25 @@ For local webhook testing, run Stripe CLI separately:
 stripe listen --forward-to localhost:8000/api/stripe/webhook
 ```
 
-Use Stripe's test card `4242 4242 4242 4242`, any future expiry date and any CVC. Bookings calculate a 25% deposit. Completing a job creates and finalizes the remaining-balance Stripe invoice when credentials are configured.
+When a customer submits the booking form, the app saves the booking as `Deposit Due`, calculates the 25% deposit, creates a Stripe Checkout session, and returns the secure checkout link immediately. The booking stays `Deposit Due` unless Stripe confirms payment.
+
+Use Stripe's test card `4242 4242 4242 4242`, any future expiry date and any CVC. After payment succeeds, Stripe redirects to `/payment-success` and the webhook endpoint `/api/stripe/webhook` also handles `checkout.session.completed`, records the payment, and marks the booking `Deposit Paid`.
+
+For Railway, add these variables to the service:
+
+```text
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+PUBLIC_URL=https://your-railway-app.up.railway.app
+```
+
+In Stripe test mode, create a webhook endpoint pointing to:
+
+```text
+https://your-railway-app.up.railway.app/api/stripe/webhook
+```
+
+Completing a job creates and finalizes the remaining-balance Stripe invoice when credentials are configured.
 
 ## Automated workflow
 
