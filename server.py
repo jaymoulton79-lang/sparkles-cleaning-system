@@ -357,6 +357,18 @@ def initialise():
                 conn.execute(f"ALTER TABLE bookings ADD COLUMN {column} {definition}")
         if "customer_id" not in columns:
             conn.execute("ALTER TABLE bookings ADD COLUMN customer_id INTEGER REFERENCES customers(id)")
+        cleaner_workflow_columns = {
+            "accepted_at": "TEXT",
+            "started_at": "TEXT",
+            "completed_at": "TEXT",
+            "declined_at": "TEXT",
+            "before_photos": "TEXT NOT NULL DEFAULT '[]'",
+            "after_photos": "TEXT NOT NULL DEFAULT '[]'",
+            "cleaner_notes": "TEXT NOT NULL DEFAULT ''"
+        }
+        for column, definition in cleaner_workflow_columns.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE bookings ADD COLUMN {column} {definition}")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cleaners (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -597,6 +609,8 @@ class Handler(BaseHTTPRequestHandler):
             for row in rows:
                 item = dict(row)
                 item["photos"] = json.loads(item["photos"])
+                item["before_photos"] = json.loads(item.get("before_photos") or "[]")
+                item["after_photos"] = json.loads(item.get("after_photos") or "[]")
                 with connect() as payment_conn:
                     item["payments"] = [dict(payment) for payment in payment_conn.execute("SELECT * FROM payments WHERE booking_id=? ORDER BY id DESC", (item["id"],)).fetchall()]
                 bookings.append(item)
@@ -670,6 +684,8 @@ class Handler(BaseHTTPRequestHandler):
             for row in rows:
                 item = dict(row)
                 item["photos"] = json.loads(item["photos"])
+                item["before_photos"] = json.loads(item.get("before_photos") or "[]")
+                item["after_photos"] = json.loads(item.get("after_photos") or "[]")
                 bookings.append(item)
             return self.send_json(bookings)
         if path.startswith("/uploads/"):
@@ -765,6 +781,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": automation.retry(job_id)})
         if path == "/api/cleaners":
             return self.create_cleaner()
+        if path.startswith("/api/cleaner/jobs/") and path.endswith("/action"):
+            return self.cleaner_job_action(path)
+        if path.startswith("/api/cleaner/jobs/") and path.endswith("/photos"):
+            return self.cleaner_job_photos(path)
         if path.startswith("/api/bookings/") and path.endswith("/checkout"):
             return self.start_checkout(path)
         if path.startswith("/api/bookings/") and path.endswith("/assign"):
@@ -1205,11 +1225,99 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid assignment request."}, 400)
 
+    def cleaner_job_action(self, path):
+        session = self.current_session()
+        if not session or session["role"] != "cleaner":
+            return self.send_json({"error": "Cleaner login required."}, 401)
+        try:
+            booking_id = int(path.split("/")[4])
+            data = self.read_json()
+            action = data.get("action")
+            now = utcnow().isoformat()
+            with connect() as conn:
+                booking = conn.execute("SELECT * FROM bookings WHERE id=? AND cleaner_id=?", (booking_id, session["subject_id"])).fetchone()
+                if not booking:
+                    return self.send_json({"error": "Assigned job not found."}, 404)
+                if action == "accept":
+                    if booking["status"] not in ("Assigned", "Accepted"):
+                        return self.send_json({"error": "Only assigned jobs can be accepted."}, 409)
+                    conn.execute("UPDATE bookings SET status='Accepted', accepted_at=COALESCE(accepted_at, ?) WHERE id=?", (now, booking_id))
+                    event, detail, status = "Job accepted", "Cleaner accepted the assigned job", "Accepted"
+                elif action == "decline":
+                    if booking["status"] not in ("Assigned", "Accepted"):
+                        return self.send_json({"error": "Only assigned jobs can be declined."}, 409)
+                    conn.execute("UPDATE bookings SET status='New', cleaner_id=NULL, assigned_at=NULL, declined_at=?, cleaner_notes=CASE WHEN ?<>'' THEN ? ELSE cleaner_notes END WHERE id=?", (now, data.get("notes", "").strip(), data.get("notes", "").strip(), booking_id))
+                    event, detail, status = "Job declined", "Cleaner declined the job; booking returned to New", "New"
+                elif action == "start":
+                    if booking["status"] not in ("Accepted", "Assigned", "In Progress"):
+                        return self.send_json({"error": "Only accepted jobs can be started."}, 409)
+                    conn.execute("UPDATE bookings SET status='In Progress', accepted_at=COALESCE(accepted_at, ?), started_at=COALESCE(started_at, ?) WHERE id=?", (now, now, booking_id))
+                    event, detail, status = "Job started", "Cleaner started the job", "In Progress"
+                elif action == "complete":
+                    if booking["status"] not in ("In Progress", "Accepted", "Assigned", "Completed"):
+                        return self.send_json({"error": "Only active jobs can be completed."}, 409)
+                    conn.execute("UPDATE bookings SET status='Completed', accepted_at=COALESCE(accepted_at, ?), started_at=COALESCE(started_at, ?), completed_at=COALESCE(completed_at, ?) WHERE id=?", (now, now, now, booking_id))
+                    event, detail, status = "Job completed", "Cleaner marked the job complete", "Completed"
+                elif action == "notes":
+                    notes = data.get("notes", "").strip()
+                    conn.execute("UPDATE bookings SET cleaner_notes=? WHERE id=?", (notes, booking_id))
+                    event, detail, status = "Cleaner notes updated", "Cleaner updated job notes", booking["status"]
+                else:
+                    raise ValueError("Invalid cleaner job action.")
+            automation.timeline(booking_id, event, detail)
+            if action == "complete":
+                automation.enqueue(booking_id, "send_final_invoice")
+            return self.send_json({"ok": True, "status": status})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error) or "Invalid cleaner job action."}, 400)
+
+    def cleaner_job_photos(self, path):
+        session = self.current_session()
+        if not session or session["role"] != "cleaner":
+            return self.send_json({"error": "Cleaner login required."}, 401)
+        try:
+            booking_id = int(path.split("/")[4])
+            photo_type = urllib.parse.parse_qs(urlparse(self.path).query).get("type", [""])[0]
+            if photo_type not in ("before", "after"):
+                raise ValueError("Photo type must be before or after.")
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > MAX_BODY:
+                return self.send_json({"error": "Upload is empty or too large (15MB maximum)."}, 413)
+            body = self.rfile.read(length)
+            raw = (f"Content-Type: {self.headers.get('Content-Type')}\r\nMIME-Version: 1.0\r\n\r\n").encode() + body
+            message = BytesParser(policy=default).parsebytes(raw)
+            saved_photos = []
+            for part in message.iter_parts():
+                name = part.get_param("name", header="content-disposition")
+                filename = part.get_filename()
+                payload = part.get_payload(decode=True) or b""
+                if filename and name == "photos":
+                    mime = part.get_content_type()
+                    if mime not in ALLOWED_IMAGES or len(payload) > 5 * 1024 * 1024:
+                        raise ValueError("Photos must be JPG, PNG or WebP and no larger than 5MB each.")
+                    saved = f"{uuid.uuid4().hex}{ALLOWED_IMAGES[mime]}"
+                    (UPLOADS / saved).write_bytes(payload)
+                    saved_photos.append({"name": Path(filename).name, "url": f"/uploads/{saved}", "uploaded_at": utcnow().isoformat()})
+            if not saved_photos:
+                raise ValueError("Please choose at least one photo.")
+            column = "before_photos" if photo_type == "before" else "after_photos"
+            with connect() as conn:
+                booking = conn.execute(f"SELECT id,{column} FROM bookings WHERE id=? AND cleaner_id=?", (booking_id, session["subject_id"])).fetchone()
+                if not booking:
+                    return self.send_json({"error": "Assigned job not found."}, 404)
+                existing = json.loads(booking[column] or "[]")
+                updated = existing + saved_photos
+                conn.execute(f"UPDATE bookings SET {column}=? WHERE id=?", (json.dumps(updated), booking_id))
+            automation.timeline(booking_id, f"{photo_type.title()} photos uploaded", f"{len(saved_photos)} {photo_type} photo(s) added by cleaner")
+            return self.send_json({"ok": True, "photos": updated})
+        except (ValueError, TypeError) as error:
+            return self.send_json({"error": str(error) or "Invalid photo upload."}, 400)
+
     def update_booking(self, path):
         try:
             booking_id = int(path.split("/")[3])
             data = self.read_json()
-            allowed_statuses = {"New", "Deposit Paid", "Assigned", "In Progress", "Completed", "Cancelled"}
+            allowed_statuses = {"New", "Deposit Paid", "Assigned", "Accepted", "In Progress", "Completed", "Cancelled"}
             invoice_url, invoice_error = None, None
             with connect() as conn:
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()

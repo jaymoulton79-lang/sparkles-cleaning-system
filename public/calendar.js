@@ -1,7 +1,7 @@
 const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const TIMES=['Morning (8am–12pm)','Afternoon (12pm–4pm)','Late afternoon (4pm–6pm)','Flexible'];
-const STATUS_CLASSES={'New':'new','Deposit Paid':'assigned','Assigned':'assigned','In Progress':'in-progress','Completed':'completed','Cancelled':'cancelled'};
+const STATUS_CLASSES={'New':'new','Deposit Paid':'assigned','Assigned':'assigned','Accepted':'assigned','In Progress':'in-progress','Completed':'completed','Cancelled':'cancelled'};
 let bookings=[],cleaners=[],view='month',cursor=new Date();cursor.setHours(12,0,0,0);let draggedId=null;
 const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
 const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
