@@ -9,7 +9,7 @@ function addAdminFields(){
   review.insertAdjacentHTML('afterend',`
     <div class="section-title">Admin login</div>
     <div class="grid">
-      <div class="field"><label for="ADMIN_EMAIL">Admin email</label><input id="ADMIN_EMAIL" name="ADMIN_EMAIL" type="email" autocomplete="username" placeholder="admin@sparklescleaningcambridge.co.uk"></div>
+      <div class="field"><label for="ADMIN_EMAIL">Admin email</label><input id="ADMIN_EMAIL" name="ADMIN_EMAIL" type="email" autocomplete="username" placeholder="labcontractors@outlook.com"></div>
       <div class="field"><label for="ADMIN_PASSWORD">Admin password</label><input id="ADMIN_PASSWORD" name="ADMIN_PASSWORD" type="password" minlength="8" autocomplete="new-password" placeholder="Leave blank to keep current password"><small>Stored securely as a salted hash.</small></div>
     </div>
   `);
@@ -24,6 +24,9 @@ async function unlock(){
   gate.hidden=true;
   form.hidden=false;
   Object.entries(config).forEach(([k,v])=>{const el=form.elements[k];if(el&&typeof v==='string')el.value=v});
+  if(!form.elements.ADMIN_EMAIL.value)form.elements.ADMIN_EMAIL.value='labcontractors@outlook.com';
+  form.elements.ADMIN_PASSWORD.required=!data.ADMIN_CONFIGURED;
+  form.elements.ADMIN_PASSWORD.placeholder=data.ADMIN_CONFIGURED?'Leave blank to keep current password':'Create the first admin password';
   document.querySelector('#stripeReady').textContent=data.STRIPE_CONFIGURED?'✓':'○';
   document.querySelector('#emailReady').textContent=data.SMTP_CONFIGURED?'✓':'○';
 }

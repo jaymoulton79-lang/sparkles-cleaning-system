@@ -40,6 +40,7 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
 ADMIN_SETUP_TOKEN = os.environ.get("ADMIN_SETUP_TOKEN", "")
+BOOTSTRAP_ADMIN_EMAIL = os.environ.get("BOOTSTRAP_ADMIN_EMAIL", "labcontractors@outlook.com")
 SESSION_COOKIE = "sparkles_session"
 PASSWORD_ITERATIONS = 260000
 SESSION_DAYS = 14
@@ -422,6 +423,10 @@ def initialise():
             ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1)
         ]
         conn.executemany("INSERT OR IGNORE INTO app_config(key,value,is_secret,updated_at) VALUES (?,?,?,?)", [(k,v,s,datetime.now(timezone.utc).isoformat()) for k,v,s in defaults])
+        admin_email = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_EMAIL'").fetchone()
+        admin_hash = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_PASSWORD_HASH'").fetchone()
+        if not (admin_email and admin_email["value"]) and not (admin_hash and admin_hash["value"]):
+            conn.execute("UPDATE app_config SET value=?,updated_at=? WHERE key='ADMIN_EMAIL'", (BOOTSTRAP_ADMIN_EMAIL, utcnow().isoformat()))
         automation.initialise(conn)
         existing = conn.execute("SELECT id,clean_type,bedrooms,bathrooms FROM bookings WHERE total_amount=0").fetchall()
         for booking in existing:
@@ -548,6 +553,7 @@ class Handler(BaseHTTPRequestHandler):
                 rows = conn.execute("SELECT key,value,is_secret,updated_at FROM app_config ORDER BY key").fetchall()
             values = {row["key"]: ("••••••••" if row["is_secret"] and row["value"] else row["value"]) for row in rows}
             values.pop("ADMIN_PASSWORD_HASH", None)
+            values["ADMIN_CONFIGURED"] = admin_configured()
             values["SMTP_CONFIGURED"] = bool(runtime_setting("SMTP_HOST", SMTP_HOST))
             values["STRIPE_CONFIGURED"] = bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
             return self.send_json(values)
@@ -835,8 +841,10 @@ class Handler(BaseHTTPRequestHandler):
             password = data.get("password", "")
             stored_email = runtime_setting("ADMIN_EMAIL", "").strip().lower()
             stored_hash = runtime_setting("ADMIN_PASSWORD_HASH", "")
-            if not stored_email or not stored_hash:
-                return self.send_json({"error": "Admin login is not set up yet. Open setup with your setup token first."}, 409)
+            if not stored_email:
+                return self.send_json({"error": "Admin email is not set up yet. Open setup with your setup token first."}, 409)
+            if not stored_hash:
+                return self.send_json({"error": "Admin password is not set yet. Use Forgot password to create one for this admin email."}, 409)
             if email != stored_email or not verify_password(password, stored_hash):
                 return self.send_json({"error": "Invalid email or password."}, 401)
             token = self.create_session("admin", None, email)
@@ -904,7 +912,7 @@ class Handler(BaseHTTPRequestHandler):
             subject_id = None
             exists = False
             if role == "admin":
-                exists = bool(runtime_setting("ADMIN_EMAIL", "").strip().lower() == email and runtime_setting("ADMIN_PASSWORD_HASH", ""))
+                exists = bool(runtime_setting("ADMIN_EMAIL", "").strip().lower() == email)
             elif role == "cleaner":
                 with connect() as conn:
                     row = conn.execute("SELECT id FROM cleaners WHERE lower(email)=lower(?)", (email,)).fetchone()
@@ -957,6 +965,11 @@ class Handler(BaseHTTPRequestHandler):
             data = self.read_json()
             allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","REVIEW_URL","ADMIN_EMAIL"}
             secret_keys = {"STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_PASSWORD"}
+            existing_admin_hash = runtime_setting("ADMIN_PASSWORD_HASH", "")
+            admin_email = str(data.get("ADMIN_EMAIL") or runtime_setting("ADMIN_EMAIL", "")).strip().lower()
+            admin_password = data.get("ADMIN_PASSWORD", "")
+            if not existing_admin_hash and (not admin_email or not admin_password):
+                raise ValueError("Please create the first admin account by entering an admin email and password.")
             with connect() as conn:
                 for key in allowed:
                     if key not in data or data[key] == "••••••••" or (key in secret_keys and data[key] == ""):
@@ -964,7 +977,6 @@ class Handler(BaseHTTPRequestHandler):
                     value = str(data[key]).strip()
                     conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES (?,?,?,?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (key, value, 1 if key in secret_keys else 0, datetime.now(timezone.utc).isoformat()))
-                admin_password = data.get("ADMIN_PASSWORD", "")
                 if admin_password:
                     conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_PASSWORD_HASH',?,?,?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (hash_password(admin_password), 1, utcnow().isoformat()))
