@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bookings | Sparkles Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/admin-bookings.css">
+  <link rel="stylesheet" href="/payments.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header><nav class="nav">
+    <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Admin</small></span></a>
+    <div class="admin-nav"><a class="active" href="/admin">Bookings</a><a href="/admin/calendar">Calendar</a><a href="/admin/cleaners">Cleaners</a><a href="/admin/automations">Automations</a><a href="/admin/setup">Setup</a></div>
+  </nav></header>
+  <main class="dash">
+    <div class="dash-head"><div><h1>Booking requests</h1><p>Review requests and assign the best local cleaner.</p></div><a class="back" href="/">+ New booking</a></div>
+    <section class="stats"><div class="stat"><span>Total requests</span><strong id="total">—</strong></div><div class="stat"><span>New requests</span><strong id="newCount">—</strong></div><div class="stat"><span>Assigned</span><strong id="assignedCount">—</strong></div></section>
+    <section class="table-card" id="list"><div class="empty">Loading bookings…</div></section>
+  </main>
+  <div id="modalRoot"></div>
+  <script src="/admin.js"></script>
+</body></html>
