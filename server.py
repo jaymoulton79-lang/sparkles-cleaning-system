@@ -40,8 +40,8 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
 ADMIN_SETUP_TOKEN = os.environ.get("ADMIN_SETUP_TOKEN", "")
-BOOTSTRAP_ADMIN_EMAIL = os.environ.get("BOOTSTRAP_ADMIN_EMAIL", "labcontractors@outlook.com")
-BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "")
+BOOTSTRAP_ADMIN_EMAIL = os.environ.get("BOOTSTRAP_ADMIN_EMAIL", "labcontractors@outlook.com").strip().lower()
+BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "").strip()
 SESSION_COOKIE = "sparkles_session"
 PASSWORD_ITERATIONS = 260000
 SESSION_DAYS = 14
@@ -430,9 +430,13 @@ def initialise():
             conn.execute("UPDATE app_config SET value=?,updated_at=? WHERE key='ADMIN_EMAIL'", (BOOTSTRAP_ADMIN_EMAIL, utcnow().isoformat()))
             admin_email = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_EMAIL'").fetchone()
         if BOOTSTRAP_ADMIN_PASSWORD:
-            conn.execute("UPDATE app_config SET value=?,updated_at=? WHERE key='ADMIN_EMAIL'", (BOOTSTRAP_ADMIN_EMAIL, utcnow().isoformat()))
-            conn.execute("UPDATE app_config SET value=?,is_secret=1,updated_at=? WHERE key='ADMIN_PASSWORD_HASH'", (hash_password(BOOTSTRAP_ADMIN_PASSWORD), utcnow().isoformat()))
-            logger.info("Bootstrap admin password updated from BOOTSTRAP_ADMIN_PASSWORD")
+            now = utcnow().isoformat()
+            conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_EMAIL',?,?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (BOOTSTRAP_ADMIN_EMAIL, 0, now))
+            conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_PASSWORD_HASH',?,?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (hash_password(BOOTSTRAP_ADMIN_PASSWORD), 1, now))
+            conn.execute("DELETE FROM sessions WHERE role='admin'")
+            logger.info("Bootstrap admin email and password hash applied from environment")
         automation.initialise(conn)
         existing = conn.execute("SELECT id,clean_type,bedrooms,bathrooms FROM bookings WHERE total_amount=0").fetchall()
         for booking in existing:
