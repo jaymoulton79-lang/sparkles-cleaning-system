@@ -41,6 +41,7 @@ SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
 ADMIN_SETUP_TOKEN = os.environ.get("ADMIN_SETUP_TOKEN", "")
 BOOTSTRAP_ADMIN_EMAIL = os.environ.get("BOOTSTRAP_ADMIN_EMAIL", "labcontractors@outlook.com")
+BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "")
 SESSION_COOKIE = "sparkles_session"
 PASSWORD_ITERATIONS = 260000
 SESSION_DAYS = 14
@@ -427,6 +428,11 @@ def initialise():
         admin_hash = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_PASSWORD_HASH'").fetchone()
         if not (admin_email and admin_email["value"]) and not (admin_hash and admin_hash["value"]):
             conn.execute("UPDATE app_config SET value=?,updated_at=? WHERE key='ADMIN_EMAIL'", (BOOTSTRAP_ADMIN_EMAIL, utcnow().isoformat()))
+            admin_email = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_EMAIL'").fetchone()
+        if (admin_email and admin_email["value"].strip().lower() == BOOTSTRAP_ADMIN_EMAIL.lower()
+                and not (admin_hash and admin_hash["value"]) and BOOTSTRAP_ADMIN_PASSWORD):
+            conn.execute("UPDATE app_config SET value=?,is_secret=1,updated_at=? WHERE key='ADMIN_PASSWORD_HASH'", (hash_password(BOOTSTRAP_ADMIN_PASSWORD), utcnow().isoformat()))
+            logger.info("Bootstrap admin password created because no admin password was configured")
         automation.initialise(conn)
         existing = conn.execute("SELECT id,clean_type,bedrooms,bathrooms FROM bookings WHERE total_amount=0").fetchall()
         for booking in existing:
