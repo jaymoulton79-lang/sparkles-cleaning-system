@@ -48,6 +48,24 @@ Deploy the image to any container host that supports a persistent volume, includ
 
 SQLite and the embedded automation worker require a single application replica. Before scaling horizontally, move bookings, jobs and configuration to PostgreSQL and run the automation worker as a separate service.
 
+### Railway
+
+Railway does not support Dockerfile `VOLUME` instructions. The Dockerfile is intentionally free of `VOLUME`; create a Railway Volume in the Railway dashboard and mount it to:
+
+```text
+/app/data
+```
+
+This keeps the SQLite database and uploaded photos persistent while staying compatible with Railway's build system.
+
+Set these Railway service values:
+
+- Start command: use the Dockerfile default, `python server.py`.
+- Public port: `8000`.
+- Health check path: `/readyz`.
+- Volume mount path: `/app/data`.
+- Replicas/instances: `1`.
+
 ## 5. Backups and restore
 
 Back up `/app/data/sparkles.db` and `/app/data/uploads` every day. Test restoration regularly. For a consistent SQLite backup, use the SQLite online backup API or briefly stop the container before copying the database.
