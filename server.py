@@ -1610,75 +1610,111 @@ class Handler(BaseHTTPRequestHandler):
         month_start = today.replace(day=1)
         today_s, tomorrow_s = today.isoformat(), tomorrow.isoformat()
         week_start_s, month_start_s = week_start.isoformat(), month_start.isoformat()
-        paid_statuses = ("Paid", "Succeeded", "succeeded", "paid")
+        successful_payment_statuses = {"paid", "succeeded", "success", "complete", "completed", "paid in full"}
+        converted_booking_statuses = {"deposit paid", "paid in full", "paid", "complete", "completed", "succeeded"}
 
-        def successful_payment_rows(conn):
-            rows = [dict(row) for row in conn.execute("""
-                SELECT p.booking_id,p.payment_type,p.amount,p.created_at,'payment' source
-                FROM payments p
-                WHERE p.status IN (?,?,?,?)
-            """, paid_statuses).fetchall()]
+        def normalise(value):
+            return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+        def date_part(value):
+            return str(value or "")[:10]
+
+        def is_active_cleaner(cleaner):
+            return str(cleaner.get("active", 1)).strip().lower() not in {"0", "false", "no", "inactive"}
+
+        def is_converted_booking(booking):
+            return normalise(booking.get("payment_status")) in converted_booking_statuses
+
+        def successful_payment_rows(bookings, payments):
+            rows = []
             paid_types_by_booking = {}
-            for row in rows:
+            for payment in payments:
+                if normalise(payment.get("status")) not in successful_payment_statuses:
+                    continue
+                row = {
+                    "booking_id": payment.get("booking_id"),
+                    "payment_type": normalise(payment.get("payment_type")) or "payment",
+                    "amount": int(payment.get("amount") or 0),
+                    "created_at": payment.get("created_at"),
+                    "source": "payments"
+                }
+                rows.append(row)
                 paid_types_by_booking.setdefault(row["booking_id"], set()).add(row["payment_type"])
-            inferred = conn.execute("""
-                SELECT id,payment_status,deposit_amount,balance_amount,total_amount,created_at
-                FROM bookings
-                WHERE payment_status IN ('Deposit Paid','Paid in Full')
-            """).fetchall()
-            for booking in inferred:
-                paid_at = booking["created_at"]
-                existing_types = paid_types_by_booking.get(booking["id"], set())
-                has_full_payment = "full" in existing_types
+            for booking in bookings:
+                if not is_converted_booking(booking):
+                    continue
+                existing_types = paid_types_by_booking.get(booking.get("id"), set())
+                has_full_payment = "full" in existing_types or "paid in full" in existing_types
+                paid_at = booking.get("created_at")
                 if not has_full_payment and "deposit" not in existing_types:
-                    rows.append({"booking_id": booking["id"], "payment_type": "deposit", "amount": int(booking["deposit_amount"] or 0), "created_at": paid_at, "source": "booking"})
-                if booking["payment_status"] == "Paid in Full" and not has_full_payment and "balance" not in existing_types:
-                    rows.append({"booking_id": booking["id"], "payment_type": "balance", "amount": int(booking["balance_amount"] or 0), "created_at": paid_at, "source": "booking"})
+                    rows.append({
+                        "booking_id": booking.get("id"),
+                        "payment_type": "deposit",
+                        "amount": int(booking.get("deposit_amount") or 0),
+                        "created_at": paid_at,
+                        "source": "bookings.payment_status"
+                    })
+                if normalise(booking.get("payment_status")) == "paid in full" and not has_full_payment and "balance" not in existing_types:
+                    rows.append({
+                        "booking_id": booking.get("id"),
+                        "payment_type": "balance",
+                        "amount": int(booking.get("balance_amount") or 0),
+                        "created_at": paid_at,
+                        "source": "bookings.payment_status"
+                    })
             return rows
 
         def money_between(rows, start_date, end_date=None, payment_type=None):
             total = 0
             for row in rows:
-                paid_date = str(row.get("created_at") or "")[:10]
+                paid_date = date_part(row.get("created_at"))
                 if paid_date < start_date:
                     continue
                 if end_date and paid_date > end_date:
                     continue
-                if payment_type and row.get("payment_type") != payment_type:
+                if payment_type and normalise(row.get("payment_type")) != payment_type:
                     continue
                 total += int(row.get("amount") or 0)
             return total
 
         with connect() as conn:
-            payment_rows = successful_payment_rows(conn)
+            bookings = [dict(row) for row in conn.execute("SELECT * FROM bookings").fetchall()]
+            payments = [dict(row) for row in conn.execute("SELECT * FROM payments").fetchall()]
+            cleaners = [dict(row) for row in conn.execute("SELECT * FROM cleaners").fetchall()]
+            conversations = [dict(row) for row in conn.execute("SELECT * FROM ai_conversations").fetchall()]
+            latest_ai_senders = {
+                row["conversation_id"]: row["sender"]
+                for row in conn.execute("""
+                    SELECT m.conversation_id,m.sender FROM ai_messages m
+                    JOIN (
+                        SELECT conversation_id,MAX(id) id FROM ai_messages GROUP BY conversation_id
+                    ) latest ON latest.id=m.id
+                """).fetchall()
+            }
+            payment_rows = successful_payment_rows(bookings, payments)
             revenue_today = money_between(payment_rows, today_s, today_s)
             revenue_week = money_between(payment_rows, week_start_s, today_s)
             revenue_month = money_between(payment_rows, month_start_s, today_s)
             deposits_today = money_between(payment_rows, today_s, today_s, "deposit")
-            today_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=?", (today_s,)).fetchone()["count"]
-            tomorrow_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=?", (tomorrow_s,)).fetchone()["count"]
-            waiting_assignment = conn.execute("""SELECT COUNT(*) count FROM bookings
-                WHERE cleaner_id IS NULL AND status NOT IN ('Completed','Cancelled')""").fetchone()["count"]
-            in_progress = conn.execute("SELECT COUNT(*) count FROM bookings WHERE status='In Progress'").fetchone()["count"]
-            completed_today = conn.execute("""SELECT COUNT(*) count FROM bookings
-                WHERE status='Completed' AND (substr(COALESCE(completed_at,''),1,10)=? OR (completed_at IS NULL AND preferred_date=?))""", (today_s, today_s)).fetchone()["count"]
-            active_cleaners = conn.execute("SELECT COUNT(*) count FROM cleaners WHERE active=1").fetchone()["count"]
-            total_bookings = conn.execute("SELECT COUNT(*) count FROM bookings").fetchone()["count"]
-            converted_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status IN ('Deposit Paid','Paid in Full')").fetchone()["count"]
-            average_job = conn.execute("SELECT COALESCE(AVG(total_amount),0) value FROM bookings WHERE total_amount > 0").fetchone()["value"] or 0
-            ai_waiting = conn.execute("""SELECT COUNT(*) count FROM ai_conversations c
-                WHERE c.admin_takeover=1
-                   OR c.status='Admin Takeover'
-                   OR EXISTS (
-                        SELECT 1 FROM ai_messages m
-                        WHERE m.conversation_id=c.id
-                          AND m.sender='customer'
-                          AND m.id=(SELECT MAX(id) FROM ai_messages WHERE conversation_id=c.id)
-                   )""").fetchone()["count"]
+            today_bookings = sum(1 for booking in bookings if date_part(booking.get("preferred_date")) == today_s)
+            tomorrow_bookings = sum(1 for booking in bookings if date_part(booking.get("preferred_date")) == tomorrow_s)
+            waiting_assignment = sum(1 for booking in bookings if not booking.get("cleaner_id") and normalise(booking.get("status")) not in {"completed", "cancelled", "canceled"})
+            in_progress = sum(1 for booking in bookings if normalise(booking.get("status")) == "in progress")
+            completed_today = sum(1 for booking in bookings if normalise(booking.get("status")) == "completed" and (date_part(booking.get("completed_at")) == today_s or (not booking.get("completed_at") and date_part(booking.get("preferred_date")) == today_s)))
+            active_cleaners = sum(1 for cleaner in cleaners if is_active_cleaner(cleaner))
+            total_bookings = len(bookings)
+            converted_bookings = sum(1 for booking in bookings if is_converted_booking(booking))
+            quoted_totals = [int(booking.get("total_amount") or 0) for booking in bookings if int(booking.get("total_amount") or 0) > 0]
+            average_job = (sum(quoted_totals) / len(quoted_totals)) if quoted_totals else 0
+            ai_waiting = sum(1 for convo in conversations if str(convo.get("admin_takeover", 0)) in {"1", "true", "True"} or normalise(convo.get("status")) == "admin takeover" or latest_ai_senders.get(convo.get("id")) == "customer")
             recent_reviews = [dict(row) for row in conn.execute("""SELECT r.*, b.reference booking_reference
                 FROM customer_reviews r LEFT JOIN bookings b ON b.id=r.booking_id
                 ORDER BY r.created_at DESC LIMIT 5""").fetchall()]
-            status_rows = [dict(row) for row in conn.execute("SELECT status, COUNT(*) count FROM bookings GROUP BY status ORDER BY count DESC").fetchall()]
+            status_counts = {}
+            for booking in bookings:
+                status = booking.get("status") or "Unknown"
+                status_counts[status] = status_counts.get(status, 0) + 1
+            status_rows = [{"status": status, "count": count} for status, count in sorted(status_counts.items(), key=lambda item: item[1], reverse=True)]
             revenue_days = []
             for offset in range(6, -1, -1):
                 day = today - timedelta(days=offset)
@@ -1692,10 +1728,23 @@ class Handler(BaseHTTPRequestHandler):
                 FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
                 WHERE b.preferred_date IN (?,?)
                 ORDER BY b.preferred_date,b.preferred_time LIMIT 10""", (today_s, tomorrow_s)).fetchall()]
+            database_info = {
+                "path": str(DB),
+                "exists": DB.exists(),
+                "size_bytes": DB.stat().st_size if DB.exists() else 0,
+                "table_counts": {
+                    "bookings": len(bookings),
+                    "payments": len(payments),
+                    "cleaners": len(cleaners),
+                    "ai_conversations": len(conversations),
+                    "successful_payment_rows_used": len(payment_rows)
+                }
+            }
 
         conversion_rate = round((converted_bookings / total_bookings) * 100, 1) if total_bookings else 0
         return self.send_json({
             "as_of": utcnow().isoformat(),
+            "database": database_info,
             "cards": {
                 "revenue_today": revenue_today,
                 "revenue_week": revenue_week,
