@@ -201,6 +201,50 @@ def schedule_booking_reminder(booking):
         pass
 
 
+BOOKING_FIELDS = ["name", "phone", "email", "address", "postcode", "clean_type", "bedrooms", "bathrooms", "preferred_date", "preferred_time"]
+
+
+def create_booking_record(fields, photos=None, source="Website"):
+    required = [key for key in BOOKING_FIELDS if not fields.get(key)]
+    if required:
+        raise ValueError("Missing booking details: " + ", ".join(required))
+    reference = f"SPK-{datetime.now().strftime('%y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
+    quote_token = uuid.uuid4().hex
+    total = quote_pence(fields["clean_type"], fields["bedrooms"], fields["bathrooms"])
+    deposit = round(total * .25)
+    with connect() as conn:
+        cursor = conn.execute("""
+            INSERT INTO bookings (reference,name,phone,email,address,postcode,clean_type,bedrooms,bathrooms,preferred_date,preferred_time,notes,photos,status,created_at,total_amount,deposit_amount,balance_amount,payment_status,quote_token,quote_status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'New',?,?,?,?, 'Deposit Due',?,'Pending')
+        """, (reference, fields["name"], fields["phone"], fields["email"], fields["address"], fields["postcode"].upper(), fields["clean_type"], int(fields["bedrooms"]), int(fields["bathrooms"]), fields["preferred_date"], fields["preferred_time"], fields.get("notes", ""), json.dumps(photos or []), datetime.now(timezone.utc).isoformat(), total, deposit, total-deposit, quote_token))
+        booking_id = cursor.lastrowid
+        booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+    automation.timeline(booking_id, "Booking received", f"{source} booking created. Quote calculated automatically: £{total/100:.2f}")
+    checkout_url, checkout_session_id, checkout_error = None, None, None
+    if stripe_configured():
+        try:
+            checkout = create_checkout(booking, "deposit")
+            checkout_url, checkout_session_id = checkout["url"], checkout["id"]
+            with connect() as conn:
+                conn.execute("UPDATE bookings SET deposit_checkout_session_id=?, deposit_checkout_url=? WHERE id=?", (checkout_session_id, checkout_url, booking_id))
+            automation.timeline(booking_id, "Deposit checkout created", "Stripe Checkout link created for the 25% deposit")
+        except ValueError as error:
+            checkout_error = str(error)
+            automation.timeline(booking_id, "Deposit checkout failed", checkout_error, "Warning")
+    else:
+        checkout_error = "Stripe is not configured. Add STRIPE_SECRET_KEY before taking online deposits."
+        automation.timeline(booking_id, "Deposit checkout not created", checkout_error, "Warning")
+    automation.enqueue(booking_id, "send_quote")
+    automation.enqueue(booking_id, "send_abandoned_followup", run_after=(datetime.now(timezone.utc) + timedelta(hours=24)).isoformat())
+    return {
+        "ok": True, "reference": reference, "booking_id": booking_id,
+        "total_amount": total, "deposit_amount": deposit, "balance_amount": total-deposit,
+        "payment_status": "Deposit Due", "checkout_url": checkout_url,
+        "checkout_session_id": checkout_session_id, "checkout_error": checkout_error,
+        "quote_status": "Queued"
+    }
+
+
 def stripe_request(path, data=None, method="POST"):
     secret_key = runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY)
     if not secret_key:
@@ -492,6 +536,25 @@ def initialise():
         conn.execute("""CREATE TABLE IF NOT EXISTS app_config (
             key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', is_secret INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS ai_conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_name TEXT NOT NULL DEFAULT '',
+            customer_email TEXT NOT NULL DEFAULT '',
+            customer_phone TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'AI Active',
+            admin_takeover INTEGER NOT NULL DEFAULT 0,
+            booking_id INTEGER REFERENCES bookings(id),
+            collected_details TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS ai_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL REFERENCES ai_conversations(id),
+            sender TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )""")
         defaults = [
             ("COMPANY_NAME", "Sparkles Cleaning Cambridge", 0), ("COMPANY_EMAIL", "", 0),
             ("COMPANY_PHONE", "", 0), ("BUSINESS_ADDRESS", "", 0), ("PUBLIC_URL", PUBLIC_URL, 0),
@@ -650,6 +713,12 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.send_json(ai_settings())
+        if path == "/api/receptionist/conversations":
+            return self.receptionist_conversations()
+        if path.startswith("/api/receptionist/conversations/") and path.endswith("/messages"):
+            return self.receptionist_public_messages(path)
+        if path.startswith("/api/receptionist/conversations/"):
+            return self.receptionist_detail(path)
         if path == "/api/payments/verify":
             return self.verify_checkout(urllib.parse.parse_qs(parsed.query).get("session_id", [""])[0])
         if path.startswith("/api/quotes/"):
@@ -810,11 +879,15 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "ai-office-settings.html")
+        if path in ("/admin/receptionist", "/admin/receptionist/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "receptionist-admin.html")
         if path in ("/admin/setup", "/admin/setup/"):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/setup.html"}
+        protected_files = {"/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -849,6 +922,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.save_ai_settings()
         if path == "/api/ai-office/respond":
             return self.ai_office_reply()
+        if path == "/api/receptionist/start":
+            return self.receptionist_start()
+        if path == "/api/receptionist/message":
+            return self.receptionist_message()
+        if path.startswith("/api/receptionist/conversations/") and path.endswith("/takeover"):
+            return self.receptionist_takeover(path)
+        if path.startswith("/api/receptionist/conversations/") and path.endswith("/reply"):
+            return self.receptionist_admin_reply(path)
         if path == "/api/stripe/webhook":
             return self.stripe_webhook()
         if path.startswith("/api/quotes/") and path.endswith("/accept"):
@@ -1251,6 +1332,170 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"reply": reply, "missing": missing, "quote": quote, "details": details, "booking_url": settings["booking_url"]})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
+
+    def receptionist_start(self):
+        now = utcnow().isoformat()
+        greeting = ai_settings()["responses"]["greeting"] + " I can help you get a quote and book online."
+        with connect() as conn:
+            cursor = conn.execute("INSERT INTO ai_conversations(status,created_at,updated_at) VALUES ('AI Active',?,?)", (now, now))
+            conversation_id = cursor.lastrowid
+            conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "ai", greeting, now))
+        return self.send_json({"conversation_id": conversation_id, "message": greeting})
+
+    def receptionist_message(self):
+        try:
+            data = self.read_json()
+            conversation_id = int(data.get("conversation_id"))
+            message = str(data.get("message", "")).strip()
+            if not message:
+                raise ValueError("Please enter a message.")
+            now = utcnow().isoformat()
+            with connect() as conn:
+                convo = conn.execute("SELECT * FROM ai_conversations WHERE id=?", (conversation_id,)).fetchone()
+                if not convo:
+                    return self.send_json({"error": "Conversation not found."}, 404)
+                conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "customer", message, now))
+                details = json.loads(convo["collected_details"] or "{}")
+                details = self.extract_receptionist_details(message, details)
+                conn.execute("UPDATE ai_conversations SET collected_details=?,customer_name=?,customer_email=?,customer_phone=?,updated_at=? WHERE id=?",
+                    (json.dumps(details), details.get("name", convo["customer_name"]), details.get("email", convo["customer_email"]), details.get("phone", convo["customer_phone"]), now, conversation_id))
+                if convo["admin_takeover"]:
+                    reply = "Thanks — a member of the Sparkles team has joined this chat and will reply here shortly."
+                    conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "system", "Customer message waiting for admin reply", now))
+                    return self.send_json({"reply": reply, "admin_takeover": True, "details": details})
+                booking_id = convo["booking_id"]
+            reply, quote, booking = self.build_receptionist_reply(conversation_id, details, existing_booking_id=booking_id)
+            with connect() as conn:
+                conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "ai", reply, utcnow().isoformat()))
+                conn.execute("UPDATE ai_conversations SET updated_at=? WHERE id=?", (utcnow().isoformat(), conversation_id))
+            return self.send_json({"reply": reply, "quote": quote, "booking": booking, "details": details})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def extract_receptionist_details(self, message, details):
+        lower = message.lower()
+        settings = ai_settings()
+        for service in settings["pricing"]:
+            if service.lower() in lower:
+                details["clean_type"] = service
+        if "deep" in lower:
+            details.setdefault("clean_type", "Deep clean")
+        elif "regular" in lower or "weekly" in lower or "fortnight" in lower:
+            details.setdefault("clean_type", "Regular clean")
+        elif "tenancy" in lower or "move" in lower:
+            details.setdefault("clean_type", "End of tenancy")
+        elif "one off" in lower or "one-off" in lower:
+            details.setdefault("clean_type", "One-off clean")
+        postcode_match = __import__("re").search(r"\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b", message.upper())
+        if postcode_match:
+            details["postcode"] = postcode_match.group(0).upper()
+        email_match = __import__("re").search(r"[\w.\-+]+@[\w.\-]+\.\w+", message)
+        if email_match:
+            details["email"] = email_match.group(0).lower()
+        phone_match = __import__("re").search(r"(\+?\d[\d\s-]{8,}\d)", message)
+        if phone_match:
+            details["phone"] = phone_match.group(1).strip()
+        date_match = __import__("re").search(r"\b20\d{2}-\d{2}-\d{2}\b", message)
+        if date_match:
+            details["preferred_date"] = date_match.group(0)
+        for number in range(0, 8):
+            if f"{number} bed" in lower or f"{number}-bed" in lower:
+                details["bedrooms"] = number
+            if f"{number} bath" in lower or f"{number}-bath" in lower:
+                details["bathrooms"] = number
+        if "morning" in lower:
+            details["preferred_time"] = "Morning (8am–12pm)"
+        elif "afternoon" in lower and "late" not in lower:
+            details["preferred_time"] = "Afternoon (12pm–4pm)"
+        elif "late afternoon" in lower:
+            details["preferred_time"] = "Late afternoon (4pm–6pm)"
+        elif "flexible" in lower:
+            details["preferred_time"] = "Flexible"
+        for key in ("name", "address"):
+            marker = f"{key}:"
+            if marker in lower:
+                details[key] = message[lower.index(marker)+len(marker):].strip().split("\n")[0].strip()
+        return details
+
+    def build_receptionist_reply(self, conversation_id, details, existing_booking_id=None):
+        required = BOOKING_FIELDS
+        missing = [field for field in required if details.get(field) in (None, "")]
+        quote = None
+        if details.get("clean_type") and details.get("bedrooms") not in (None, "") and details.get("bathrooms") not in (None, ""):
+            total = quote_pence(details["clean_type"], details["bedrooms"], details["bathrooms"])
+            deposit = round(total * .25)
+            quote = {"total_amount": total, "deposit_amount": deposit, "balance_amount": total-deposit}
+        if not missing and not existing_booking_id:
+            booking = create_booking_record(details, [], "AI Receptionist chat")
+            with connect() as conn:
+                conn.execute("UPDATE ai_conversations SET booking_id=?,status='Booking Created',updated_at=? WHERE id=?", (booking["booking_id"], utcnow().isoformat(), conversation_id))
+            pay_line = f" You can pay the 25% deposit here: {booking['checkout_url']}" if booking.get("checkout_url") else f" The booking is saved as Deposit Due. {booking.get('checkout_error') or ''}"
+            return f"Lovely, I have created your Sparkles booking {booking['reference']}. The total is £{booking['total_amount']/100:.2f} and the deposit is £{booking['deposit_amount']/100:.2f}.{pay_line}", quote, booking
+        if existing_booking_id:
+            return "Your booking has already been created. If you need to change anything, the Sparkles team can help from here.", quote, None
+        question_labels = {
+            "name": "your full name", "phone": "your phone number", "email": "your email address",
+            "address": "the cleaning address", "postcode": "the postcode", "clean_type": "the type of clean",
+            "bedrooms": "how many bedrooms", "bathrooms": "how many bathrooms",
+            "preferred_date": "your preferred date", "preferred_time": "your preferred time"
+        }
+        intro = "Thanks, I can help with that."
+        if quote:
+            intro = f"Based on that, the estimated total is £{quote['total_amount']/100:.2f}. The 25% deposit would be £{quote['deposit_amount']/100:.2f}."
+        return intro + " Could you please tell me " + ", ".join(question_labels[field] for field in missing[:3]) + "?", quote, None
+
+    def receptionist_conversations(self):
+        if not self.require_admin():
+            return
+        with connect() as conn:
+            rows = conn.execute("""SELECT c.*, b.reference booking_reference FROM ai_conversations c
+                LEFT JOIN bookings b ON b.id=c.booking_id ORDER BY c.updated_at DESC LIMIT 100""").fetchall()
+        return self.send_json([dict(row) for row in rows])
+
+    def receptionist_public_messages(self, path):
+        try:
+            conversation_id = int(path.split("/")[4])
+            with connect() as conn:
+                messages = conn.execute("SELECT id,sender,message,created_at FROM ai_messages WHERE conversation_id=? ORDER BY id", (conversation_id,)).fetchall()
+            return self.send_json([dict(row) for row in messages])
+        except (ValueError, IndexError):
+            return self.send_json({"error": "Conversation not found."}, 404)
+
+    def receptionist_detail(self, path):
+        if not self.require_admin():
+            return
+        conversation_id = int(path.split("/")[4])
+        with connect() as conn:
+            convo = conn.execute("SELECT * FROM ai_conversations WHERE id=?", (conversation_id,)).fetchone()
+            messages = conn.execute("SELECT * FROM ai_messages WHERE conversation_id=? ORDER BY id", (conversation_id,)).fetchall()
+        if not convo:
+            return self.send_json({"error": "Conversation not found."}, 404)
+        return self.send_json({"conversation": dict(convo), "messages": [dict(row) for row in messages]})
+
+    def receptionist_takeover(self, path):
+        if not self.require_admin():
+            return
+        conversation_id = int(path.split("/")[4])
+        data = self.read_json()
+        enabled = 1 if data.get("admin_takeover", True) else 0
+        status = "Admin Takeover" if enabled else "AI Active"
+        with connect() as conn:
+            conn.execute("UPDATE ai_conversations SET admin_takeover=?,status=?,updated_at=? WHERE id=?", (enabled, status, utcnow().isoformat(), conversation_id))
+            conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "system", f"Admin takeover {'enabled' if enabled else 'disabled'}", utcnow().isoformat()))
+        return self.send_json({"ok": True, "admin_takeover": bool(enabled), "status": status})
+
+    def receptionist_admin_reply(self, path):
+        if not self.require_admin():
+            return
+        conversation_id = int(path.split("/")[4])
+        data = self.read_json()
+        message = str(data.get("message", "")).strip()
+        if not message:
+            return self.send_json({"error": "Please enter a reply."}, 400)
+        with connect() as conn:
+            conn.execute("UPDATE ai_conversations SET admin_takeover=1,status='Admin Takeover',updated_at=? WHERE id=?", (utcnow().isoformat(), conversation_id))
+            conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "admin", message, utcnow().isoformat()))
+        return self.send_json({"ok": True})
 
     def start_checkout(self, path):
         try:

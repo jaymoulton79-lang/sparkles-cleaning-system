@@ -67,6 +67,10 @@ Admins can open `http://localhost:8000/admin/ai-office` to draft customer enquir
 
 The automation engine also follows up unpaid bookings after 24 hours, confirms deposit payments, sends 24-hour reminders before cleans, and requests reviews after completed jobs.
 
+## AI Receptionist live chat
+
+The booking website includes a mobile-friendly AI Receptionist chat widget. Customer conversations are saved in the database, quotes use the same Sparkles pricing rules, completed chat bookings create normal bookings with Stripe deposit links, and admins can review or take over chats at `http://localhost:8000/admin/receptionist`.
+
 ## Production
 
 Use the protected setup wizard at `http://localhost:8000/admin/setup`. Docker, cloud deployment, health checks, backups and logging are covered in `DEPLOYMENT.md`. Complete every item in `PRODUCTION_CHECKLIST.md` before accepting real customers or switching Stripe to live mode.
