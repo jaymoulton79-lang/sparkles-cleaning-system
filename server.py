@@ -1358,13 +1358,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": str(error)}, 400)
 
     def receptionist_start(self):
+        conversation = self.create_receptionist_conversation()
+        return self.send_json({"conversation_id": conversation["conversation_id"], "message": conversation["message"]})
+
+    def create_receptionist_conversation(self):
         now = utcnow().isoformat()
         greeting = ai_settings()["responses"]["greeting"] + " I can help you get a quote and book online."
         with connect() as conn:
             cursor = conn.execute("INSERT INTO ai_conversations(status,created_at,updated_at) VALUES ('AI Active',?,?)", (now, now))
             conversation_id = cursor.lastrowid
             conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "ai", greeting, now))
-        return self.send_json({"conversation_id": conversation_id, "message": greeting})
+        return {"conversation_id": conversation_id, "message": greeting}
 
     def receptionist_message(self):
         try:
@@ -1377,7 +1381,9 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 convo = conn.execute("SELECT * FROM ai_conversations WHERE id=?", (conversation_id,)).fetchone()
                 if not convo:
-                    return self.send_json({"error": "Conversation not found."}, 404)
+                    conversation = self.create_receptionist_conversation()
+                    conversation_id = conversation["conversation_id"]
+                    convo = conn.execute("SELECT * FROM ai_conversations WHERE id=?", (conversation_id,)).fetchone()
                 conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "customer", message, now))
                 details = json.loads(convo["collected_details"] or "{}")
                 details = self.extract_receptionist_details(message, details)
@@ -1408,7 +1414,7 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "ai", reply, utcnow().isoformat()))
                 conn.execute("UPDATE ai_conversations SET updated_at=? WHERE id=?", (utcnow().isoformat(), conversation_id))
-            return self.send_json({"reply": reply, "quote": quote, "booking": booking, "details": details})
+            return self.send_json({"conversation_id": conversation_id, "reply": reply, "quote": quote, "booking": booking, "details": details})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
 
@@ -1590,10 +1596,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             conversation_id = int(path.split("/")[4])
             with connect() as conn:
+                convo = conn.execute("SELECT id FROM ai_conversations WHERE id=?", (conversation_id,)).fetchone()
+                if not convo:
+                    conversation = self.create_receptionist_conversation()
+                    messages = conn.execute("SELECT id,sender,message,created_at FROM ai_messages WHERE conversation_id=? ORDER BY id", (conversation["conversation_id"],)).fetchall()
+                    return self.send_json({"conversation_id": conversation["conversation_id"], "messages": [dict(row) for row in messages]})
                 messages = conn.execute("SELECT id,sender,message,created_at FROM ai_messages WHERE conversation_id=? ORDER BY id", (conversation_id,)).fetchall()
-            return self.send_json([dict(row) for row in messages])
+            return self.send_json({"conversation_id": conversation_id, "messages": [dict(row) for row in messages]})
         except (ValueError, IndexError):
-            return self.send_json({"error": "Conversation not found."}, 404)
+            conversation = self.create_receptionist_conversation()
+            with connect() as conn:
+                messages = conn.execute("SELECT id,sender,message,created_at FROM ai_messages WHERE conversation_id=? ORDER BY id", (conversation["conversation_id"],)).fetchall()
+            return self.send_json({"conversation_id": conversation["conversation_id"], "messages": [dict(row) for row in messages]})
 
     def receptionist_detail(self, path):
         if not self.require_admin():

@@ -21,21 +21,35 @@
     body.appendChild(div);body.scrollTop=body.scrollHeight;
   }
   async function loadMessages(){
-    if(!state.conversationId)return;
+    if(!state.conversationId){
+      await start(true);
+      return;
+    }
     const r=await fetch(`/api/receptionist/conversations/${state.conversationId}/messages`);
-    const messages=await r.json();
-    if(!r.ok)return;
+    const data=await r.json();
+    if(!r.ok){
+      await start(true);
+      return;
+    }
+    if(data.conversation_id&&String(data.conversation_id)!==String(state.conversationId)){
+      state.conversationId=data.conversation_id;
+      state.seen.clear();
+      localStorage.setItem('sparkles_chat_id',state.conversationId);
+    }
+    const messages=Array.isArray(data)?data:(data.messages||[]);
     messages.forEach(m=>{
       if(state.seen.has(m.id))return;
       state.seen.add(m.id);
       add(m.sender,m.message);
     });
   }
-  async function start(){
-    if(state.conversationId)return;
+  async function start(force=false){
+    if(state.conversationId&&!force)return;
     const r=await fetch('/api/receptionist/start',{method:'POST'}),data=await r.json();
     if(!r.ok)throw new Error(data.error||'Could not start chat.');
     state.conversationId=data.conversation_id;
+    state.seen.clear();
+    body.innerHTML='';
     localStorage.setItem('sparkles_chat_id',state.conversationId);
     await loadMessages();
   }
@@ -60,9 +74,16 @@
       const data=await r.json();
       typing.remove();
       if(!r.ok)throw new Error(data.error||'Could not send message.');
+      if(data.conversation_id&&String(data.conversation_id)!==String(state.conversationId)){
+        state.conversationId=data.conversation_id;
+        state.seen.clear();
+        body.innerHTML='';
+        localStorage.setItem('sparkles_chat_id',state.conversationId);
+      }
       await loadMessages();
     }catch(error){
-      typing.remove();add('system',error.message);
+      typing.remove();
+      await start(true);
     }
   };
   setInterval(()=>{if(state.open)loadMessages()},5000);
