@@ -1736,6 +1736,10 @@ class Handler(BaseHTTPRequestHandler):
         month_start = today.replace(day=1)
         today_s, tomorrow_s = today.isoformat(), tomorrow.isoformat()
         week_start_s, month_start_s = week_start.isoformat(), month_start.isoformat()
+        today_start_ts = int(datetime.combine(today, datetime.min.time(), business_tz).astimezone(timezone.utc).timestamp())
+        tomorrow_start_ts = int(datetime.combine(tomorrow, datetime.min.time(), business_tz).astimezone(timezone.utc).timestamp())
+        week_start_ts = int(datetime.combine(week_start, datetime.min.time(), business_tz).astimezone(timezone.utc).timestamp())
+        month_start_ts = int(datetime.combine(month_start, datetime.min.time(), business_tz).astimezone(timezone.utc).timestamp())
         successful_payment_statuses = {"paid", "succeeded", "success", "complete", "completed", "paid in full"}
         converted_booking_statuses = {"deposit paid", "paid in full", "paid", "complete", "completed", "succeeded"}
 
@@ -1767,6 +1771,26 @@ class Handler(BaseHTTPRequestHandler):
         def date_part(value):
             return str(value or "")[:10]
 
+        def datetime_to_ts(value):
+            if value in (None, ""):
+                return None
+            if isinstance(value, (int, float)):
+                return int(value)
+            text = str(value).strip()
+            if text.isdigit():
+                return int(text)
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return int(parsed.astimezone(timezone.utc).timestamp())
+            except ValueError:
+                try:
+                    parsed = datetime.fromisoformat(text[:10]).replace(tzinfo=business_tz)
+                    return int(parsed.astimezone(timezone.utc).timestamp())
+                except ValueError:
+                    return None
+
         def is_active_cleaner(cleaner):
             inactive_values = {"0", "false", "no", "inactive", "disabled", "archived", "suspended", "deleted"}
             active_value = get_value(cleaner, "active", "is_active", "enabled", "account_active", default=None)
@@ -1790,6 +1814,7 @@ class Handler(BaseHTTPRequestHandler):
                     "payment_type": normalise(get_value(payment, "payment_type", "type", "kind", default="payment")) or "payment",
                     "amount": int_value(get_value(payment, "amount", "amount_paid", "total", "value")),
                     "created_at": get_value(payment, "created_at", "paid_at", "payment_date", "created", "timestamp"),
+                    "created_ts": datetime_to_ts(get_value(payment, "created_at", "paid_at", "payment_date", "created", "timestamp")),
                     "source": "payments"
                 }
                 rows.append(row)
@@ -1807,6 +1832,7 @@ class Handler(BaseHTTPRequestHandler):
                         "payment_type": "deposit",
                         "amount": int_value(get_value(booking, "deposit_amount", "deposit", "deposit_paid", "deposit_total")),
                         "created_at": paid_at,
+                        "created_ts": datetime_to_ts(paid_at),
                         "source": "bookings.payment_status"
                     })
                 if normalise(get_value(booking, "payment_status", "stripe_status", "deposit_status", "payment_state")) == "paid in full" and not has_full_payment and "balance" not in existing_types:
@@ -1815,6 +1841,7 @@ class Handler(BaseHTTPRequestHandler):
                         "payment_type": "balance",
                         "amount": int_value(get_value(booking, "balance_amount", "balance", "remaining_amount", "remaining_balance")),
                         "created_at": paid_at,
+                        "created_ts": datetime_to_ts(paid_at),
                         "source": "bookings.payment_status"
                     })
             return rows
@@ -1845,6 +1872,7 @@ class Handler(BaseHTTPRequestHandler):
                             "payment_type": normalise(metadata.get("payment_type") or "deposit"),
                             "amount": amount,
                             "created_at": created.date().isoformat(),
+                            "created_ts": int(session.get("created", 0)),
                             "source": "stripe.checkout.sessions",
                             "provider_payment_id": session.get("payment_intent") or session.get("id")
                         })
@@ -1882,18 +1910,38 @@ class Handler(BaseHTTPRequestHandler):
                 return []
             return [dict(row) for row in conn.execute(f"SELECT * FROM {quote_identifier(table_name)}").fetchall()]
 
-        def money_between(rows, start_date, end_date=None, payment_type=None):
+        def money_between(rows, start_date, end_date=None, payment_type=None, start_ts=None, end_ts=None):
             total = 0
             for row in rows:
-                paid_date = date_part(row.get("created_at"))
-                if paid_date < start_date:
-                    continue
-                if end_date and paid_date > end_date:
-                    continue
+                if start_ts is not None:
+                    paid_ts = row.get("created_ts") or datetime_to_ts(row.get("created_at"))
+                    if paid_ts is None or paid_ts < start_ts:
+                        continue
+                    if end_ts is not None and paid_ts >= end_ts:
+                        continue
+                else:
+                    paid_date = date_part(row.get("created_at"))
+                    if paid_date < start_date:
+                        continue
+                    if end_date and paid_date > end_date:
+                        continue
                 if payment_type and normalise(row.get("payment_type")) != payment_type:
                     continue
                 total += int(row.get("amount") or 0)
             return total
+
+        def booking_identity(booking):
+            return get_value(booking, "id", "booking_id", "reference", "booking_reference", "ref")
+
+        def payment_booking_identity(payment):
+            return payment.get("booking_id") or payment.get("booking_reference")
+
+        def inferred_booking_total_from_payment(payment):
+            amount = int(payment.get("amount") or 0)
+            payment_type = normalise(payment.get("payment_type"))
+            if payment_type == "deposit":
+                return amount * 4
+            return amount
 
         selected_database, discovered_databases = dashboard_database_profile()
         dashboard_db_path = Path(selected_database["path"])
@@ -1927,19 +1975,27 @@ class Handler(BaseHTTPRequestHandler):
             stored_payment_rows = successful_payment_rows(bookings, payments)
             stripe_payment_rows, stripe_payment_error = stripe_checkout_payment_rows(month_start_s)
             payment_rows = stripe_payment_rows if stripe_payment_rows else stored_payment_rows
-            revenue_today = money_between(payment_rows, today_s, today_s)
-            revenue_week = money_between(payment_rows, week_start_s, today_s)
-            revenue_month = money_between(payment_rows, month_start_s, today_s)
-            deposits_today = money_between(payment_rows, today_s, today_s, "deposit")
+            revenue_today = money_between(payment_rows, today_s, today_s, start_ts=today_start_ts, end_ts=tomorrow_start_ts)
+            revenue_week = money_between(payment_rows, week_start_s, today_s, start_ts=week_start_ts, end_ts=tomorrow_start_ts)
+            revenue_month = money_between(payment_rows, month_start_s, today_s, start_ts=month_start_ts, end_ts=tomorrow_start_ts)
+            deposits_today = money_between(payment_rows, today_s, today_s, "deposit", start_ts=today_start_ts, end_ts=tomorrow_start_ts)
             today_bookings = sum(1 for booking in bookings if date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)
             tomorrow_bookings = sum(1 for booking in bookings if date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == tomorrow_s)
             waiting_assignment = sum(1 for booking in bookings if not get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner") and normalise(get_value(booking, "status", "booking_status")) not in {"completed", "cancelled", "canceled"})
             in_progress = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "in progress")
             completed_today = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "completed" and (date_part(get_value(booking, "completed_at", "completed_date", "finished_at")) == today_s or (not get_value(booking, "completed_at", "completed_date", "finished_at") and date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)))
             active_cleaners = sum(1 for cleaner in cleaners if is_active_cleaner(cleaner))
-            total_bookings = len(bookings)
-            converted_bookings = sum(1 for booking in bookings if is_converted_booking(booking))
+            if active_cleaners == 0:
+                assigned_cleaner_ids = {get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner") for booking in bookings if get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner")}
+                active_cleaners = len(assigned_cleaner_ids)
+            booking_identities = {booking_identity(booking) for booking in bookings if booking_identity(booking) not in (None, "")}
+            paid_booking_identities = {payment_booking_identity(payment) for payment in payment_rows if payment_booking_identity(payment) not in (None, "")}
+            total_bookings = max(len(bookings), len(booking_identities), len(paid_booking_identities))
+            converted_booking_identities = {booking_identity(booking) for booking in bookings if is_converted_booking(booking) and booking_identity(booking) not in (None, "")}
+            converted_bookings = max(len(converted_booking_identities), len(paid_booking_identities))
             quoted_totals = [int_value(get_value(booking, "total_amount", "total", "quote_total", "amount_total", "price", "quoted_amount")) for booking in bookings if int_value(get_value(booking, "total_amount", "total", "quote_total", "amount_total", "price", "quoted_amount")) > 0]
+            if not quoted_totals and payment_rows:
+                quoted_totals = [inferred_booking_total_from_payment(payment) for payment in payment_rows if inferred_booking_total_from_payment(payment) > 0]
             average_job = (sum(quoted_totals) / len(quoted_totals)) if quoted_totals else 0
             ai_waiting = sum(1 for convo in conversations if str(get_value(convo, "admin_takeover", default=0)) in {"1", "true", "True"} or normalise(get_value(convo, "status")) == "admin takeover" or latest_ai_senders.get(get_value(convo, "id", "conversation_id")) == "customer")
             recent_reviews = []
@@ -1987,7 +2043,9 @@ class Handler(BaseHTTPRequestHandler):
                     "dashboard_ai_conversations_used": len(conversations),
                     "successful_payment_rows_used": len(payment_rows),
                     "stripe_payment_rows_used": len(stripe_payment_rows),
-                    "stored_payment_rows_used": len(stored_payment_rows)
+                    "stored_payment_rows_used": len(stored_payment_rows),
+                    "paid_booking_identities_used": len(paid_booking_identities),
+                    "booking_identities_used": len(booking_identities)
                 },
                 "stripe_payment_source_error": stripe_payment_error
             }
