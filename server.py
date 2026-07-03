@@ -765,6 +765,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.owner_dashboard()
+        if path == "/api/admin/diagnostics":
+            if not self.require_admin():
+                return
+            return self.admin_diagnostics()
         if path == "/api/receptionist/conversations":
             return self.receptionist_conversations()
         if path.startswith("/api/receptionist/conversations/") and path.endswith("/messages"):
@@ -899,6 +903,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "owner-dashboard.html")
+        if path in ("/admin/diagnostics", "/admin/diagnostics/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "admin-diagnostics.html")
         if path in ("/admin/bookings", "/admin/bookings/"):
             if not self.is_admin():
                 return self.redirect("/admin/login")
@@ -943,7 +951,7 @@ class Handler(BaseHTTPRequestHandler):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html"}
+        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html", "/admin-diagnostics.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -1616,7 +1624,7 @@ class Handler(BaseHTTPRequestHandler):
             intro = f"Based on that, the estimated total is £{quote['total_amount']/100:.2f}. The 25% deposit would be £{quote['deposit_amount']/100:.2f}."
         return intro + " Could you please tell me " + ", ".join(question_labels[field] for field in missing[:3]) + "?", quote, None
 
-    def owner_dashboard(self):
+    def owner_dashboard_payload(self):
         business_tz = ZoneInfo("Europe/London")
         today = datetime.now(business_tz).date()
         tomorrow = today + timedelta(days=1)
@@ -1830,7 +1838,7 @@ class Handler(BaseHTTPRequestHandler):
             }
 
         conversion_rate = round((converted_bookings / total_bookings) * 100, 1) if total_bookings else 0
-        return self.send_json({
+        return {
             "as_of": utcnow().isoformat(),
             "database": database_info,
             "cards": {
@@ -1855,7 +1863,44 @@ class Handler(BaseHTTPRequestHandler):
             },
             "upcoming": upcoming_rows,
             "reviews": recent_reviews
-        })
+        }
+
+    def owner_dashboard(self):
+        return self.send_json(self.owner_dashboard_payload())
+
+    def admin_diagnostics(self):
+        def quote_identifier(identifier):
+            return '"' + str(identifier).replace('"', '""') + '"'
+
+        def latest_row(conn, table_name):
+            exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table_name,)).fetchone()
+            if not exists:
+                return None
+            columns = [row["name"] for row in conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})").fetchall()]
+            order_column = "id" if "id" in columns else "rowid"
+            row = conn.execute(f"SELECT * FROM {quote_identifier(table_name)} ORDER BY {quote_identifier(order_column)} DESC LIMIT 1").fetchone()
+            return dict(row) if row else None
+
+        session = self.current_session()
+        dashboard_payload = self.owner_dashboard_payload()
+        with connect() as conn:
+            table_names = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+            row_counts = {}
+            for table_name in table_names:
+                row_counts[table_name] = conn.execute(f"SELECT COUNT(*) count FROM {quote_identifier(table_name)}").fetchone()["count"]
+            diagnostics = {
+                "database_path": str(DB),
+                "database_exists": DB.exists(),
+                "table_names": table_names,
+                "row_counts": row_counts,
+                "latest_booking": latest_row(conn, "bookings"),
+                "latest_stripe_payment": latest_row(conn, "payments"),
+                "latest_cleaner": latest_row(conn, "cleaners"),
+                "latest_ai_conversation": latest_row(conn, "ai_conversations"),
+                "raw_dashboard_metrics": dashboard_payload,
+                "current_admin_email": session["email"] if session else None
+            }
+        return self.send_json(diagnostics)
 
     def receptionist_conversations(self):
         if not self.require_admin():
