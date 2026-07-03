@@ -1729,7 +1729,7 @@ class Handler(BaseHTTPRequestHandler):
         return intro + " Could you please tell me " + ", ".join(question_labels[field] for field in missing[:3]) + "?", quote, None
 
     def owner_dashboard_payload(self):
-        business_tz = ZoneInfo("Europe/London")
+        business_tz = datetime.now().astimezone().tzinfo or timezone.utc
         today = datetime.now(business_tz).date()
         tomorrow = today + timedelta(days=1)
         week_start = today - timedelta(days=today.weekday())
@@ -1792,15 +1792,26 @@ class Handler(BaseHTTPRequestHandler):
                     return None
 
         def is_active_cleaner(cleaner):
-            inactive_values = {"0", "false", "no", "inactive", "disabled", "archived", "suspended", "deleted"}
+            inactive_values = {"0", "false", "no", "inactive", "disabled", "archived", "suspended", "deleted", "cancelled", "canceled", "pending", "invited"}
+            active_values = {"1", "true", "yes", "active", "enabled", "approved", "verified", "available", "onboarded"}
             role_value = get_value(cleaner, "role", "user_role", "account_type", "user_type", "type", default=None)
-            if role_value is not None and "cleaner" not in normalise(role_value):
+            has_cleaner_role = role_value is not None and "cleaner" in normalise(role_value)
+            if role_value is not None and not has_cleaner_role:
                 return False
             active_value = get_value(cleaner, "active", "is_active", "enabled", "account_active", default=None)
-            if active_value is not None and str(active_value).strip().lower() in inactive_values:
-                return False
-            status = normalise(get_value(cleaner, "status", "account_status", "profile_status", default="active"))
-            return status not in inactive_values
+            if active_value is not None:
+                return normalise(active_value) in active_values
+            status_value = get_value(cleaner, "status", "account_status", "profile_status", default=None)
+            if status_value is not None:
+                status = normalise(status_value)
+                return status in active_values or (has_cleaner_role and status not in inactive_values)
+            cleaner_profile_fields = (
+                "travel_radius", "hourly_rate", "availability", "services",
+                "services_offered", "dbs_status", "insurance_status"
+            )
+            has_cleaner_profile = any(get_value(cleaner, field, default=None) not in (None, "") for field in cleaner_profile_fields)
+            has_contact = get_value(cleaner, "name", "full_name", "email", "phone", default=None) not in (None, "")
+            return has_cleaner_role or (has_cleaner_profile and has_contact)
 
         def is_converted_booking(booking):
             return normalise(get_value(booking, "payment_status", "stripe_status", "deposit_status", "payment_state")) in converted_booking_statuses
