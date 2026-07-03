@@ -1616,26 +1616,49 @@ class Handler(BaseHTTPRequestHandler):
         def normalise(value):
             return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
+        def quote_identifier(identifier):
+            return '"' + str(identifier).replace('"', '""') + '"'
+
+        def normalised_columns(row):
+            return {normalise(key): key for key in row.keys()}
+
+        def get_value(row, *aliases, default=None):
+            lookup = normalised_columns(row)
+            for alias in aliases:
+                key = lookup.get(normalise(alias))
+                if key is not None:
+                    return row.get(key)
+            return default
+
+        def int_value(value):
+            try:
+                if value in (None, ""):
+                    return 0
+                return int(float(str(value).replace(",", "")))
+            except (TypeError, ValueError):
+                return 0
+
         def date_part(value):
             return str(value or "")[:10]
 
         def is_active_cleaner(cleaner):
-            return str(cleaner.get("active", 1)).strip().lower() not in {"0", "false", "no", "inactive"}
+            return str(get_value(cleaner, "active", "is_active", "enabled", default=1)).strip().lower() not in {"0", "false", "no", "inactive"}
 
         def is_converted_booking(booking):
-            return normalise(booking.get("payment_status")) in converted_booking_statuses
+            return normalise(get_value(booking, "payment_status", "stripe_status", "deposit_status", "payment_state")) in converted_booking_statuses
 
         def successful_payment_rows(bookings, payments):
             rows = []
             paid_types_by_booking = {}
             for payment in payments:
-                if normalise(payment.get("status")) not in successful_payment_statuses:
+                if normalise(get_value(payment, "status", "payment_status", "stripe_status", "state")) not in successful_payment_statuses:
                     continue
+                booking_id = get_value(payment, "booking_id", "booking", "booking_ref", "booking_reference")
                 row = {
-                    "booking_id": payment.get("booking_id"),
-                    "payment_type": normalise(payment.get("payment_type")) or "payment",
-                    "amount": int(payment.get("amount") or 0),
-                    "created_at": payment.get("created_at"),
+                    "booking_id": booking_id,
+                    "payment_type": normalise(get_value(payment, "payment_type", "type", "kind", default="payment")) or "payment",
+                    "amount": int_value(get_value(payment, "amount", "amount_paid", "total", "value")),
+                    "created_at": get_value(payment, "created_at", "paid_at", "payment_date", "created", "timestamp"),
                     "source": "payments"
                 }
                 rows.append(row)
@@ -1643,26 +1666,54 @@ class Handler(BaseHTTPRequestHandler):
             for booking in bookings:
                 if not is_converted_booking(booking):
                     continue
-                existing_types = paid_types_by_booking.get(booking.get("id"), set())
+                booking_id = get_value(booking, "id", "booking_id")
+                existing_types = paid_types_by_booking.get(booking_id, set())
                 has_full_payment = "full" in existing_types or "paid in full" in existing_types
-                paid_at = booking.get("created_at")
+                paid_at = get_value(booking, "paid_at", "deposit_paid_at", "created_at", "created", "timestamp")
                 if not has_full_payment and "deposit" not in existing_types:
                     rows.append({
-                        "booking_id": booking.get("id"),
+                        "booking_id": booking_id,
                         "payment_type": "deposit",
-                        "amount": int(booking.get("deposit_amount") or 0),
+                        "amount": int_value(get_value(booking, "deposit_amount", "deposit", "deposit_paid", "deposit_total")),
                         "created_at": paid_at,
                         "source": "bookings.payment_status"
                     })
-                if normalise(booking.get("payment_status")) == "paid in full" and not has_full_payment and "balance" not in existing_types:
+                if normalise(get_value(booking, "payment_status", "stripe_status", "deposit_status", "payment_state")) == "paid in full" and not has_full_payment and "balance" not in existing_types:
                     rows.append({
-                        "booking_id": booking.get("id"),
+                        "booking_id": booking_id,
                         "payment_type": "balance",
-                        "amount": int(booking.get("balance_amount") or 0),
+                        "amount": int_value(get_value(booking, "balance_amount", "balance", "remaining_amount", "remaining_balance")),
                         "created_at": paid_at,
                         "source": "bookings.payment_status"
                     })
             return rows
+
+        def score_table(columns, kind):
+            cols = {normalise(column) for column in columns}
+            if kind == "bookings":
+                signals = {"preferred_date", "clean_type", "payment_status", "deposit_amount", "total_amount", "postcode", "bathrooms", "bedrooms", "cleaner_id", "assigned_at"}
+            elif kind == "payments":
+                signals = {"payment_type", "provider_payment_id", "booking_id", "amount", "amount_paid", "payment_status", "stripe_status", "paid_at"}
+            elif kind == "cleaners":
+                signals = {"travel_radius", "hourly_rate", "availability", "services", "dbs_status", "insurance_status", "postcode", "active"}
+            else:
+                signals = {"admin_takeover", "collected_details", "conversation_id", "customer_email", "customer_phone", "booking_id"}
+            return sum(1 for signal in signals if signal in cols)
+
+        def choose_table(table_meta, preferred, kind):
+            candidates = [table for table in table_meta if not table["name"].startswith("sqlite_")]
+            ranked = sorted(candidates, key=lambda table: (
+                1 if table["name"] == preferred and table["row_count"] > 0 else 0,
+                score_table(table["columns"], kind),
+                table["row_count"]
+            ), reverse=True)
+            return ranked[0]["name"] if ranked and score_table(ranked[0]["columns"], kind) > 0 else preferred
+
+        def read_table(conn, table_name):
+            exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table_name,)).fetchone()
+            if not exists:
+                return []
+            return [dict(row) for row in conn.execute(f"SELECT * FROM {quote_identifier(table_name)}").fetchall()]
 
         def money_between(rows, start_date, end_date=None, payment_type=None):
             total = 0
@@ -1678,41 +1729,55 @@ class Handler(BaseHTTPRequestHandler):
             return total
 
         with connect() as conn:
-            bookings = [dict(row) for row in conn.execute("SELECT * FROM bookings").fetchall()]
-            payments = [dict(row) for row in conn.execute("SELECT * FROM payments").fetchall()]
-            cleaners = [dict(row) for row in conn.execute("SELECT * FROM cleaners").fetchall()]
-            conversations = [dict(row) for row in conn.execute("SELECT * FROM ai_conversations").fetchall()]
-            latest_ai_senders = {
-                row["conversation_id"]: row["sender"]
-                for row in conn.execute("""
-                    SELECT m.conversation_id,m.sender FROM ai_messages m
-                    JOIN (
-                        SELECT conversation_id,MAX(id) id FROM ai_messages GROUP BY conversation_id
-                    ) latest ON latest.id=m.id
-                """).fetchall()
-            }
+            table_names = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+            table_meta = []
+            for table_name in table_names:
+                columns = [row["name"] for row in conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})").fetchall()]
+                count = conn.execute(f"SELECT COUNT(*) count FROM {quote_identifier(table_name)}").fetchone()["count"]
+                table_meta.append({"name": table_name, "columns": columns, "row_count": count})
+            booking_table = choose_table(table_meta, "bookings", "bookings")
+            payment_table = choose_table(table_meta, "payments", "payments")
+            cleaner_table = choose_table(table_meta, "cleaners", "cleaners")
+            conversation_table = choose_table(table_meta, "ai_conversations", "conversations")
+            bookings = read_table(conn, booking_table)
+            payments = read_table(conn, payment_table)
+            cleaners = read_table(conn, cleaner_table)
+            conversations = read_table(conn, conversation_table)
+            latest_ai_senders = {}
+            if conversation_table == "ai_conversations" and "ai_messages" in table_names:
+                latest_ai_senders = {
+                    row["conversation_id"]: row["sender"]
+                    for row in conn.execute("""
+                        SELECT m.conversation_id,m.sender FROM ai_messages m
+                        JOIN (
+                            SELECT conversation_id,MAX(id) id FROM ai_messages GROUP BY conversation_id
+                        ) latest ON latest.id=m.id
+                    """).fetchall()
+                }
             payment_rows = successful_payment_rows(bookings, payments)
             revenue_today = money_between(payment_rows, today_s, today_s)
             revenue_week = money_between(payment_rows, week_start_s, today_s)
             revenue_month = money_between(payment_rows, month_start_s, today_s)
             deposits_today = money_between(payment_rows, today_s, today_s, "deposit")
-            today_bookings = sum(1 for booking in bookings if date_part(booking.get("preferred_date")) == today_s)
-            tomorrow_bookings = sum(1 for booking in bookings if date_part(booking.get("preferred_date")) == tomorrow_s)
-            waiting_assignment = sum(1 for booking in bookings if not booking.get("cleaner_id") and normalise(booking.get("status")) not in {"completed", "cancelled", "canceled"})
-            in_progress = sum(1 for booking in bookings if normalise(booking.get("status")) == "in progress")
-            completed_today = sum(1 for booking in bookings if normalise(booking.get("status")) == "completed" and (date_part(booking.get("completed_at")) == today_s or (not booking.get("completed_at") and date_part(booking.get("preferred_date")) == today_s)))
+            today_bookings = sum(1 for booking in bookings if date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)
+            tomorrow_bookings = sum(1 for booking in bookings if date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == tomorrow_s)
+            waiting_assignment = sum(1 for booking in bookings if not get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner") and normalise(get_value(booking, "status", "booking_status")) not in {"completed", "cancelled", "canceled"})
+            in_progress = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "in progress")
+            completed_today = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "completed" and (date_part(get_value(booking, "completed_at", "completed_date", "finished_at")) == today_s or (not get_value(booking, "completed_at", "completed_date", "finished_at") and date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)))
             active_cleaners = sum(1 for cleaner in cleaners if is_active_cleaner(cleaner))
             total_bookings = len(bookings)
             converted_bookings = sum(1 for booking in bookings if is_converted_booking(booking))
-            quoted_totals = [int(booking.get("total_amount") or 0) for booking in bookings if int(booking.get("total_amount") or 0) > 0]
+            quoted_totals = [int_value(get_value(booking, "total_amount", "total", "quote_total", "amount_total", "price", "quoted_amount")) for booking in bookings if int_value(get_value(booking, "total_amount", "total", "quote_total", "amount_total", "price", "quoted_amount")) > 0]
             average_job = (sum(quoted_totals) / len(quoted_totals)) if quoted_totals else 0
-            ai_waiting = sum(1 for convo in conversations if str(convo.get("admin_takeover", 0)) in {"1", "true", "True"} or normalise(convo.get("status")) == "admin takeover" or latest_ai_senders.get(convo.get("id")) == "customer")
-            recent_reviews = [dict(row) for row in conn.execute("""SELECT r.*, b.reference booking_reference
-                FROM customer_reviews r LEFT JOIN bookings b ON b.id=r.booking_id
-                ORDER BY r.created_at DESC LIMIT 5""").fetchall()]
+            ai_waiting = sum(1 for convo in conversations if str(get_value(convo, "admin_takeover", default=0)) in {"1", "true", "True"} or normalise(get_value(convo, "status")) == "admin takeover" or latest_ai_senders.get(get_value(convo, "id", "conversation_id")) == "customer")
+            recent_reviews = []
+            if "customer_reviews" in table_names and "bookings" in table_names:
+                recent_reviews = [dict(row) for row in conn.execute("""SELECT r.*, b.reference booking_reference
+                    FROM customer_reviews r LEFT JOIN bookings b ON b.id=r.booking_id
+                    ORDER BY r.created_at DESC LIMIT 5""").fetchall()]
             status_counts = {}
             for booking in bookings:
-                status = booking.get("status") or "Unknown"
+                status = get_value(booking, "status", "booking_status", default="Unknown") or "Unknown"
                 status_counts[status] = status_counts.get(status, 0) + 1
             status_rows = [{"status": status, "count": count} for status, count in sorted(status_counts.items(), key=lambda item: item[1], reverse=True)]
             revenue_days = []
@@ -1724,19 +1789,28 @@ class Handler(BaseHTTPRequestHandler):
                     "label": day.strftime("%a"),
                     "amount": money_between(payment_rows, day_s, day_s)
                 })
-            upcoming_rows = [dict(row) for row in conn.execute("""SELECT b.id,b.reference,b.name,b.clean_type,b.preferred_date,b.preferred_time,b.status,c.name cleaner_name
-                FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
-                WHERE b.preferred_date IN (?,?)
-                ORDER BY b.preferred_date,b.preferred_time LIMIT 10""", (today_s, tomorrow_s)).fetchall()]
+            upcoming_rows = []
+            if booking_table == "bookings" and cleaner_table == "cleaners":
+                upcoming_rows = [dict(row) for row in conn.execute("""SELECT b.id,b.reference,b.name,b.clean_type,b.preferred_date,b.preferred_time,b.status,c.name cleaner_name
+                    FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
+                    WHERE b.preferred_date IN (?,?)
+                    ORDER BY b.preferred_date,b.preferred_time LIMIT 10""", (today_s, tomorrow_s)).fetchall()]
             database_info = {
                 "path": str(DB),
                 "exists": DB.exists(),
                 "size_bytes": DB.stat().st_size if DB.exists() else 0,
-                "table_counts": {
-                    "bookings": len(bookings),
-                    "payments": len(payments),
-                    "cleaners": len(cleaners),
-                    "ai_conversations": len(conversations),
+                "tables": table_meta,
+                "selected_sources": {
+                    "bookings": booking_table,
+                    "stripe_payments": payment_table,
+                    "cleaners": cleaner_table,
+                    "ai_conversations": conversation_table
+                },
+                "table_counts": {table["name"]: table["row_count"] for table in table_meta} | {
+                    "dashboard_bookings_used": len(bookings),
+                    "dashboard_payments_used": len(payments),
+                    "dashboard_cleaners_used": len(cleaners),
+                    "dashboard_ai_conversations_used": len(conversations),
                     "successful_payment_rows_used": len(payment_rows)
                 }
             }
