@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Office Settings | Sparkles Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/ai-office.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header><nav class="nav">
+    <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Admin</small></span></a>
+    <div class="admin-nav"><a href="/admin">Bookings</a><a href="/admin/calendar">Calendar</a><a href="/admin/cleaners">Cleaners</a><a href="/admin/automations">Automations</a><a class="active" href="/admin/ai-office">AI Office Manager</a><a href="/admin/setup">Setup</a></div>
+  </nav></header>
+  <main class="ai-page">
+    <div class="ai-hero">
+      <div><h1>AI Office settings</h1><p>Edit the business information and response style used by the Office Manager.</p></div>
+      <a class="primary-small" href="/admin/ai-office">Back to AI Office Manager</a>
+    </div>
+    <section class="ai-card">
+      <div id="settingsAlert" class="alert"></div>
+      <form id="settingsForm" class="settings-grid">
+        <div class="field"><label>Business hours</label><textarea name="business_hours" id="businessHours"></textarea></div>
+        <div class="field"><label>Service areas</label><textarea name="service_areas" id="serviceAreas"></textarea></div>
+        <div>
+          <div class="section-title">Pricing</div>
+          <table class="pricing-table"><thead><tr><th>Service</th><th>Base price</th><th>Extra bedroom</th><th>Extra bathroom</th></tr></thead><tbody id="pricingRows"></tbody></table>
+        </div>
+        <div>
+          <div class="section-title">AI responses</div>
+          <div class="response-grid" id="responseRows"></div>
+        </div>
+        <div class="save-row"><button type="submit" class="submit">Save AI Office settings</button></div>
+      </form>
+    </section>
+  </main>
+  <script src="/ai-office-settings.js"></script>
+</body>
+</html>

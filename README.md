@@ -61,6 +61,12 @@ The automation engine runs inside the server and is monitored at `http://localho
 
 Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `SMTP_FROM` to deliver real email. Without SMTP settings, emails are stored as local previews in the automation logs so the complete workflow can be tested safely.
 
+## AI Office Manager
+
+Admins can open `http://localhost:8000/admin/ai-office` to draft customer enquiry replies, ask for missing booking details, generate quotes from Sparkles pricing rules, and send customers to the online booking page. Settings for business hours, pricing, service areas and response text are editable at `http://localhost:8000/admin/ai-office/settings`.
+
+The automation engine also follows up unpaid bookings after 24 hours, confirms deposit payments, sends 24-hour reminders before cleans, and requests reviews after completed jobs.
+
 ## Production
 
 Use the protected setup wizard at `http://localhost:8000/admin/setup`. Docker, cloud deployment, health checks, backups and logging are covered in `DEPLOYMENT.md`. Complete every item in `PRODUCTION_CHECKLIST.md` before accepting real customers or switching Stripe to live mode.

@@ -41,6 +41,8 @@ def initialise(conn):
     steps = [
         ("send_quote", "Send customer quote"), ("offer_cleaners", "Offer job to suitable cleaners"),
         ("send_confirmations", "Send assignment confirmations"), ("send_reminder", "Send 24-hour reminders"),
+        ("send_payment_confirmation", "Send payment confirmation"),
+        ("send_abandoned_followup", "Follow up abandoned bookings"),
         ("send_final_invoice", "Send final invoice"), ("send_review", "Send review request")]
     conn.executemany("INSERT OR IGNORE INTO workflow_config(step,label) VALUES (?,?)", steps)
 

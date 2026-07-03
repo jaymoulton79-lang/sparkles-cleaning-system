@@ -70,6 +70,20 @@ POSTCODE_CENTRES = {
     "CB25": (52.260, 0.240)
 }
 
+DEFAULT_AI_PRICING = {
+    "Regular clean": {"base": 5500, "bedroom_extra": 1400, "bathroom_extra": 1000},
+    "Deep clean": {"base": 9500, "bedroom_extra": 1800, "bathroom_extra": 1300},
+    "End of tenancy": {"base": 14500, "bedroom_extra": 2400, "bathroom_extra": 1700},
+    "One-off clean": {"base": 7500, "bedroom_extra": 1600, "bathroom_extra": 1100}
+}
+DEFAULT_AI_RESPONSES = {
+    "greeting": "Thanks for contacting Sparkles Cleaning Cambridge. I can help with prices, availability and booking details.",
+    "booking_prompt": "To prepare an accurate quote, please share your name, phone, email, address, postcode, type of clean, bedrooms, bathrooms, preferred date and preferred time.",
+    "handoff": "You can complete the secure booking form online and pay the 25% deposit to confirm."
+}
+DEFAULT_SERVICE_AREAS = "Cambridge, CB1, CB2, CB3, CB4, CB5, CB21, CB22, CB23, CB24, CB25"
+DEFAULT_BUSINESS_HOURS = "Monday to Friday 8am-6pm, Saturday 9am-2pm, closed Sunday"
+
 
 def utcnow():
     return datetime.now(timezone.utc)
@@ -148,8 +162,43 @@ def cleaner_has_conflict(conn, cleaner_id, booking_date, booking_time, exclude_b
 
 
 def quote_pence(clean_type, bedrooms, bathrooms):
-    base = {"Regular clean": 5500, "Deep clean": 9500, "End of tenancy": 14500, "One-off clean": 7500}.get(clean_type, 7500)
-    return base + max(0, int(bedrooms) - 1) * 1400 + max(0, int(bathrooms) - 1) * 1000
+    pricing = ai_pricing_rules()
+    rule = pricing.get(clean_type) or pricing.get("One-off clean") or {"base": 7500, "bedroom_extra": 1600, "bathroom_extra": 1100}
+    return int(rule.get("base", 7500)) + max(0, int(bedrooms) - 1) * int(rule.get("bedroom_extra", 0)) + max(0, int(bathrooms) - 1) * int(rule.get("bathroom_extra", 0))
+
+
+def ai_pricing_rules():
+    try:
+        value = runtime_setting("AI_PRICING_JSON", json.dumps(DEFAULT_AI_PRICING))
+        data = json.loads(value)
+        return data if isinstance(data, dict) else DEFAULT_AI_PRICING
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return DEFAULT_AI_PRICING
+
+
+def ai_settings():
+    try:
+        responses = json.loads(runtime_setting("AI_RESPONSES_JSON", json.dumps(DEFAULT_AI_RESPONSES)))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        responses = DEFAULT_AI_RESPONSES
+    if not isinstance(responses, dict):
+        responses = DEFAULT_AI_RESPONSES
+    return {
+        "business_hours": runtime_setting("AI_BUSINESS_HOURS", DEFAULT_BUSINESS_HOURS),
+        "service_areas": runtime_setting("AI_SERVICE_AREAS", DEFAULT_SERVICE_AREAS),
+        "pricing": ai_pricing_rules(),
+        "responses": {**DEFAULT_AI_RESPONSES, **responses},
+        "booking_url": f"{public_url()}/"
+    }
+
+
+def schedule_booking_reminder(booking):
+    try:
+        reminder_time = datetime.fromisoformat(booking["preferred_date"]).replace(tzinfo=timezone.utc) - timedelta(days=1) + timedelta(hours=8)
+        if reminder_time > datetime.now(timezone.utc):
+            automation.enqueue(booking["id"], "send_reminder", run_after=reminder_time.isoformat())
+    except (ValueError, TypeError):
+        pass
 
 
 def stripe_request(path, data=None, method="POST"):
@@ -263,6 +312,13 @@ def automation_handler(job):
         with connect() as conn:
             conn.execute("UPDATE bookings SET quote_status='Sent' WHERE id=?", (booking_id,))
         automation.timeline(booking_id, "Quote sent", f"£{booking['total_amount']/100:.2f} quote sent to customer")
+    elif step == "send_abandoned_followup":
+        if booking["payment_status"] != "Deposit Due":
+            automation.timeline(booking_id, "Abandoned follow-up skipped", f"Payment status is {booking['payment_status']}")
+            return
+        checkout = booking.get("deposit_checkout_url") or f"{public_url()}/quote?token={booking['quote_token']}"
+        send_workflow_email(booking_id, booking["email"], f"Complete your Sparkles booking - {booking['reference']}", f"Hello {booking['name']},\n\nWe saved your Sparkles Cleaning Cambridge booking request, but the 25% deposit has not been completed yet.\n\nYour quote is £{booking['total_amount']/100:.2f}; the deposit is £{booking['deposit_amount']/100:.2f}.\n\nComplete your booking here: {checkout}\n\nIf you have questions, reply to this email and we will help.")
+        automation.timeline(booking_id, "Abandoned booking follow-up sent", "Customer reminded 24 hours after an unpaid booking")
     elif step == "offer_cleaners":
         matches = suitable_cleaners(booking)
         if not matches:
@@ -275,6 +331,9 @@ def automation_handler(job):
             link = f"{runtime_setting('PUBLIC_URL', PUBLIC_URL).rstrip('/')}/job-offer?token={offer['token']}"
             send_workflow_email(booking_id, cleaner["email"], f"New cleaning job near {booking['postcode']}", f"Hello {cleaner['name']},\n\nA {booking['clean_type']} is available on {booking['preferred_date']} ({booking['preferred_time']}), {cleaner['distance']} miles away.\n\nView and accept: {link}")
         automation.timeline(booking_id, "Job offered", f"Offered to {len(matches)} suitable cleaner(s), nearest first")
+    elif step == "send_payment_confirmation":
+        send_workflow_email(booking_id, booking["email"], f"Deposit received - {booking['reference']}", f"Hello {booking['name']},\n\nThank you. We have received your 25% deposit of £{booking['deposit_amount']/100:.2f} for {booking['clean_type']} on {booking['preferred_date']} ({booking['preferred_time']}).\n\nWe will confirm the assigned cleaner as soon as the job is accepted.\n\nSparkles Cleaning Cambridge")
+        automation.timeline(booking_id, "Payment confirmation sent", "Customer notified after deposit payment")
     elif step == "send_confirmations":
         send_workflow_email(booking_id, booking["email"], f"Cleaner confirmed – {booking['reference']}", f"Hello {booking['name']},\n\n{booking['cleaner_name']} is confirmed for {booking['preferred_date']} ({booking['preferred_time']}).")
         send_workflow_email(booking_id, booking["cleaner_email"], f"Job confirmed – {booking['reference']}", f"Hello {booking['cleaner_name']},\n\nYou are confirmed for {booking['address']}, {booking['postcode']} on {booking['preferred_date']} ({booking['preferred_time']}).")
@@ -439,7 +498,9 @@ def initialise():
             ("STRIPE_SECRET_KEY", "", 1), ("STRIPE_WEBHOOK_SECRET", "", 1),
             ("SMTP_HOST", "", 0), ("SMTP_PORT", "587", 0), ("SMTP_USER", "", 0),
             ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("REVIEW_URL", "", 0),
-            ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1)
+            ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1),
+            ("AI_BUSINESS_HOURS", DEFAULT_BUSINESS_HOURS, 0), ("AI_SERVICE_AREAS", DEFAULT_SERVICE_AREAS, 0),
+            ("AI_PRICING_JSON", json.dumps(DEFAULT_AI_PRICING), 0), ("AI_RESPONSES_JSON", json.dumps(DEFAULT_AI_RESPONSES), 0)
         ]
         conn.executemany("INSERT OR IGNORE INTO app_config(key,value,is_secret,updated_at) VALUES (?,?,?,?)", [(k,v,s,datetime.now(timezone.utc).isoformat()) for k,v,s in defaults])
         admin_email = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_EMAIL'").fetchone()
@@ -585,6 +646,10 @@ class Handler(BaseHTTPRequestHandler):
             values["SMTP_CONFIGURED"] = bool(runtime_setting("SMTP_HOST", SMTP_HOST))
             values["STRIPE_CONFIGURED"] = bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
             return self.send_json(values)
+        if path == "/api/ai-office/settings":
+            if not self.require_admin():
+                return
+            return self.send_json(ai_settings())
         if path == "/api/payments/verify":
             return self.verify_checkout(urllib.parse.parse_qs(parsed.query).get("session_id", [""])[0])
         if path.startswith("/api/quotes/"):
@@ -737,11 +802,19 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "automations.html")
+        if path in ("/admin/ai-office", "/admin/ai-office/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "ai-office.html")
+        if path in ("/admin/ai-office/settings", "/admin/ai-office/settings/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "ai-office-settings.html")
         if path in ("/admin/setup", "/admin/setup/"):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/setup.html"}
+        protected_files = {"/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/setup.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -772,6 +845,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.confirm_password_reset()
         if path == "/api/config":
             return self.save_config()
+        if path == "/api/ai-office/settings":
+            return self.save_ai_settings()
+        if path == "/api/ai-office/respond":
+            return self.ai_office_reply()
         if path == "/api/stripe/webhook":
             return self.stripe_webhook()
         if path.startswith("/api/quotes/") and path.endswith("/accept"):
@@ -855,6 +932,7 @@ class Handler(BaseHTTPRequestHandler):
                 checkout_error = "Stripe is not configured. Add STRIPE_SECRET_KEY before taking online deposits."
                 automation.timeline(booking_id, "Deposit checkout not created", checkout_error, "Warning")
             automation.enqueue(booking_id, "send_quote")
+            automation.enqueue(booking_id, "send_abandoned_followup", run_after=(datetime.now(timezone.utc) + timedelta(hours=24)).isoformat())
             result = {
                 "ok": True, "reference": reference, "booking_id": booking_id,
                 "total_amount": total, "deposit_amount": deposit, "balance_amount": total-deposit,
@@ -1078,6 +1156,102 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, json.JSONDecodeError, base64.binascii.Error) as error:
             self.send_json({"error": str(error)}, 400)
 
+    def save_ai_settings(self):
+        if not self.require_admin():
+            return
+        try:
+            data = self.read_json()
+            settings = ai_settings()
+            business_hours = str(data.get("business_hours", settings["business_hours"])).strip()
+            service_areas = str(data.get("service_areas", settings["service_areas"])).strip()
+            pricing = data.get("pricing", settings["pricing"])
+            responses = data.get("responses", settings["responses"])
+            if not business_hours or not service_areas:
+                raise ValueError("Business hours and service areas are required.")
+            if not isinstance(pricing, dict) or not pricing:
+                raise ValueError("Pricing must include at least one service.")
+            cleaned_pricing = {}
+            for service, rule in pricing.items():
+                if not service or not isinstance(rule, dict):
+                    continue
+                cleaned_pricing[str(service).strip()] = {
+                    "base": int(rule.get("base", 0)),
+                    "bedroom_extra": int(rule.get("bedroom_extra", 0)),
+                    "bathroom_extra": int(rule.get("bathroom_extra", 0))
+                }
+            if not cleaned_pricing:
+                raise ValueError("Pricing must include at least one valid service.")
+            if not isinstance(responses, dict):
+                raise ValueError("AI responses must be a simple set of response fields.")
+            cleaned_responses = {str(k): str(v).strip() for k, v in responses.items() if str(k).strip()}
+            now = utcnow().isoformat()
+            rows = [
+                ("AI_BUSINESS_HOURS", business_hours, 0, now),
+                ("AI_SERVICE_AREAS", service_areas, 0, now),
+                ("AI_PRICING_JSON", json.dumps(cleaned_pricing), 0, now),
+                ("AI_RESPONSES_JSON", json.dumps(cleaned_responses), 0, now)
+            ]
+            with connect() as conn:
+                conn.executemany("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES (?,?,?,?)
+                    ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", rows)
+            return self.send_json({"ok": True, "settings": ai_settings()})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def ai_office_reply(self):
+        if not self.require_admin():
+            return
+        try:
+            data = self.read_json()
+            message = str(data.get("message", "")).strip()
+            details = data.get("details") if isinstance(data.get("details"), dict) else {}
+            settings = ai_settings()
+            service_names = list(settings["pricing"].keys())
+            lower = message.lower()
+            if "deep" in lower:
+                details.setdefault("clean_type", "Deep clean")
+            elif "tenancy" in lower or "move" in lower:
+                details.setdefault("clean_type", "End of tenancy")
+            elif "regular" in lower or "weekly" in lower or "fortnight" in lower:
+                details.setdefault("clean_type", "Regular clean")
+            elif "one-off" in lower or "one off" in lower:
+                details.setdefault("clean_type", "One-off clean")
+            for number in range(0, 8):
+                if f"{number} bed" in lower or f"{number}-bed" in lower:
+                    details.setdefault("bedrooms", number)
+                if f"{number} bath" in lower or f"{number}-bath" in lower:
+                    details.setdefault("bathrooms", number)
+            required = ["name","phone","email","address","postcode","clean_type","bedrooms","bathrooms","preferred_date","preferred_time"]
+            missing = [field for field in required if details.get(field) in (None, "")]
+            quote = None
+            if details.get("clean_type") and details.get("bedrooms") not in (None, "") and details.get("bathrooms") not in (None, ""):
+                total = quote_pence(details["clean_type"], details["bedrooms"], details["bathrooms"])
+                quote = {"total_amount": total, "deposit_amount": round(total * .25), "balance_amount": total - round(total * .25)}
+            if quote:
+                opener = f"Based on the details so far, the estimated total is £{quote['total_amount']/100:.2f}. The 25% deposit is £{quote['deposit_amount']/100:.2f}."
+            elif any(word in lower for word in ["price", "quote", "cost", "how much"]):
+                opener = "I can prepare a quote as soon as I know the type of clean, bedrooms and bathrooms."
+            elif any(word in lower for word in ["open", "hour", "available"]):
+                opener = f"Our business hours are {settings['business_hours']}."
+            elif any(word in lower for word in ["area", "postcode", "cover"]):
+                opener = f"We cover {settings['service_areas']}."
+            else:
+                opener = settings["responses"]["greeting"]
+            question_labels = {
+                "name": "your full name", "phone": "your phone number", "email": "your email address",
+                "address": "the cleaning address", "postcode": "the postcode", "clean_type": f"the type of clean ({', '.join(service_names)})",
+                "bedrooms": "the number of bedrooms", "bathrooms": "the number of bathrooms",
+                "preferred_date": "your preferred date", "preferred_time": "your preferred time"
+            }
+            next_questions = [question_labels[field] for field in missing[:4]]
+            reply = opener
+            if next_questions:
+                reply += "\n\nTo finish the booking, please ask for: " + "; ".join(next_questions) + "."
+            reply += f"\n\nWhen ready, send the customer to {settings['booking_url']} to complete the booking and pay the secure 25% deposit."
+            return self.send_json({"reply": reply, "missing": missing, "quote": quote, "details": details, "booking_url": settings["booking_url"]})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
     def start_checkout(self, path):
         try:
             booking_id = int(path.split("/")[3])
@@ -1117,7 +1291,11 @@ class Handler(BaseHTTPRequestHandler):
                 amount = booking["deposit_amount"] if payment_type == "deposit" else booking["balance_amount"]
                 record_payment(conn, booking_id, payment_type, amount, session.get("payment_intent") or session_id)
             automation.timeline(booking_id, "Payment received", f"{payment_type.title()} payment confirmed: £{amount/100:.2f}")
-            automation.enqueue(booking_id, "offer_cleaners" if payment_type == "deposit" else "send_review")
+            if payment_type == "deposit":
+                automation.enqueue(booking_id, "send_payment_confirmation")
+                automation.enqueue(booking_id, "offer_cleaners")
+            else:
+                automation.enqueue(booking_id, "send_review")
             self.send_json({"paid": True, "booking_id": booking_id, "payment_type": payment_type})
         except (ValueError, TypeError) as error:
             self.send_json({"error": str(error)}, 400)
@@ -1149,7 +1327,11 @@ class Handler(BaseHTTPRequestHandler):
                     amount = booking["deposit_amount"] if payment_type == "deposit" else booking["balance_amount"]
                     record_payment(conn, booking_id, payment_type, amount, session.get("payment_intent") or session["id"])
                 automation.timeline(booking_id, "Payment received", f"{payment_type.title()} payment confirmed by Stripe webhook")
-                automation.enqueue(booking_id, "offer_cleaners" if payment_type == "deposit" else "send_review")
+                if payment_type == "deposit":
+                    automation.enqueue(booking_id, "send_payment_confirmation")
+                    automation.enqueue(booking_id, "offer_cleaners")
+                else:
+                    automation.enqueue(booking_id, "send_review")
             elif event.get("type") == "invoice.paid":
                 invoice = event["data"]["object"]
                 booking_id = int(invoice.get("metadata", {}).get("booking_id", 0))
@@ -1228,9 +1410,9 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE cleaner_offers SET status='Expired' WHERE booking_id=? AND id<>? AND status='Offered'", (booking["id"], offer["id"]))
             automation.timeline(booking["id"], "Cleaner accepted", f"{cleaner['name']} accepted and was assigned automatically")
             automation.enqueue(booking["id"], "send_confirmations")
-            reminder_time = datetime.fromisoformat(booking["preferred_date"]).replace(tzinfo=timezone.utc) - timedelta(days=1) + timedelta(hours=8)
-            if reminder_time > datetime.now(timezone.utc):
-                automation.enqueue(booking["id"], "send_reminder", run_after=reminder_time.isoformat())
+            schedule_reminder = dict(booking)
+            schedule_reminder["id"] = booking["id"]
+            schedule_booking_reminder(schedule_reminder)
             self.send_json({"ok": True, "booking_id": booking["id"], "status": "Assigned"})
         except ValueError as error:
             self.send_json({"error": str(error)}, 400)
@@ -1258,6 +1440,10 @@ class Handler(BaseHTTPRequestHandler):
                 if cleaner_has_conflict(conn, cleaner_id, booking["preferred_date"], booking["preferred_time"], booking_id):
                     return self.send_json({"error": f"{cleaner['name']} is already booked at that time."}, 409)
                 conn.execute("UPDATE bookings SET cleaner_id=?, status='Assigned', assigned_at=? WHERE id=?", (cleaner_id, datetime.now(timezone.utc).isoformat(), booking_id))
+                updated = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+            automation.timeline(booking_id, "Cleaner assigned", f"{cleaner['name']} assigned by admin")
+            automation.enqueue(booking_id, "send_confirmations")
+            schedule_booking_reminder(dict(updated))
             self.send_json({"ok": True, "status": "Assigned", "cleaner_name": cleaner["name"]})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid assignment request."}, 400)
@@ -1304,6 +1490,7 @@ class Handler(BaseHTTPRequestHandler):
             automation.timeline(booking_id, event, detail)
             if action == "complete":
                 automation.enqueue(booking_id, "send_final_invoice")
+                automation.enqueue(booking_id, "send_review")
             return self.send_json({"ok": True, "status": status})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error) or "Invalid cleaner job action."}, 400)
@@ -1380,6 +1567,7 @@ class Handler(BaseHTTPRequestHandler):
             if new_status == "Completed" and booking["status"] != "Completed":
                 automation.timeline(booking_id, "Job completed", "Booking marked complete from the calendar")
                 automation.enqueue(booking_id, "send_final_invoice")
+                automation.enqueue(booking_id, "send_review")
             self.send_json({"ok": True, "preferred_date": new_date, "preferred_time": new_time, "status": new_status, "invoice_url": invoice_url, "invoice_error": invoice_error})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid schedule update."}, 400)
