@@ -433,6 +433,92 @@ def connect():
     return conn
 
 
+def sqlite_path_from_url(value):
+    if not value:
+        return None
+    if value.startswith("sqlite:///"):
+        path = value.removeprefix("sqlite:///")
+        if path.startswith("/") or re.match(r"^[A-Za-z]:", path):
+            return Path(path)
+        return ROOT / path
+    if value.startswith("sqlite://"):
+        return Path(value.removeprefix("sqlite://"))
+    return None
+
+
+def sqlite_candidate_paths():
+    paths = []
+    for key in ("SPARKLES_DB_PATH", "SQLITE_DB_PATH", "DATABASE_PATH"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            paths.append(Path(value))
+    database_url_path = sqlite_path_from_url(os.environ.get("DATABASE_URL", "").strip())
+    if database_url_path:
+        paths.append(database_url_path)
+    for mount_key in ("RAILWAY_VOLUME_MOUNT_PATH", "VOLUME_MOUNT_PATH"):
+        mount = os.environ.get(mount_key, "").strip()
+        if mount:
+            paths.append(Path(mount) / "sparkles.db")
+            paths.extend(Path(mount).glob("*.db") if Path(mount).exists() else [])
+    paths.extend([DB, ROOT / "sparkles.db", Path("/data/sparkles.db"), Path("/app/data/sparkles.db"), Path("/app/sparkles.db")])
+    for directory in (DATA, ROOT, Path("/data"), Path("/app/data"), Path("/app")):
+        if directory.exists():
+            paths.extend(directory.glob("*.db"))
+            paths.extend(directory.glob("*.sqlite"))
+            paths.extend(directory.glob("*.sqlite3"))
+    unique = []
+    seen = set()
+    for path in paths:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            resolved = path.expanduser().absolute()
+        key = str(resolved)
+        if key not in seen:
+            seen.add(key)
+            unique.append(resolved)
+    return unique
+
+
+def open_sqlite(path, readonly=False):
+    if readonly:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    else:
+        conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def sqlite_database_profile(path):
+    profile = {"path": str(path), "exists": path.exists(), "size_bytes": path.stat().st_size if path.exists() else 0, "tables": [], "row_counts": {}, "error": None}
+    if not path.exists():
+        return profile
+    try:
+        with open_sqlite(path, readonly=True) as conn:
+            table_names = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
+            profile["tables"] = table_names
+            for table_name in table_names:
+                safe_name = '"' + table_name.replace('"', '""') + '"'
+                profile["row_counts"][table_name] = conn.execute(f"SELECT COUNT(*) count FROM {safe_name}").fetchone()["count"]
+    except sqlite3.Error as error:
+        profile["error"] = str(error)
+    return profile
+
+
+def dashboard_database_profile():
+    profiles = [sqlite_database_profile(path) for path in sqlite_candidate_paths()]
+    def score(profile):
+        counts = profile.get("row_counts", {})
+        core_total = sum(int(counts.get(table, 0) or 0) for table in ("bookings", "payments", "cleaners"))
+        core_tables = sum(1 for table in ("bookings", "payments", "cleaners") if table in counts)
+        preferred = 1 if profile["path"] == str(DB.resolve()) else 0
+        return (1 if core_total > 0 else 0, core_total, core_tables, preferred, profile.get("size_bytes", 0))
+    selected = sorted(profiles, key=score, reverse=True)[0] if profiles else sqlite_database_profile(DB)
+    if score(selected)[0] == 0:
+        selected = next((profile for profile in profiles if profile["path"] == str(DB.resolve())), selected)
+    return selected, profiles
+
+
 def runtime_setting(key, fallback=""):
     environment = os.environ.get(key)
     if environment not in (None, ""):
@@ -1750,7 +1836,10 @@ class Handler(BaseHTTPRequestHandler):
                 total += int(row.get("amount") or 0)
             return total
 
-        with connect() as conn:
+        selected_database, discovered_databases = dashboard_database_profile()
+        dashboard_db_path = Path(selected_database["path"])
+        connector = (lambda: open_sqlite(dashboard_db_path, readonly=True)) if dashboard_db_path.exists() else connect
+        with connector() as conn:
             table_names = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
             table_meta = []
             for table_name in table_names:
@@ -1818,9 +1907,11 @@ class Handler(BaseHTTPRequestHandler):
                     WHERE b.preferred_date IN (?,?)
                     ORDER BY b.preferred_date,b.preferred_time LIMIT 10""", (today_s, tomorrow_s)).fetchall()]
             database_info = {
-                "path": str(DB),
-                "exists": DB.exists(),
-                "size_bytes": DB.stat().st_size if DB.exists() else 0,
+                "path": selected_database["path"],
+                "write_path": str(DB),
+                "exists": selected_database["exists"],
+                "size_bytes": selected_database["size_bytes"],
+                "discovered_databases": discovered_databases,
                 "tables": table_meta,
                 "selected_sources": {
                     "bookings": booking_table,
@@ -1883,14 +1974,19 @@ class Handler(BaseHTTPRequestHandler):
 
         session = self.current_session()
         dashboard_payload = self.owner_dashboard_payload()
-        with connect() as conn:
+        selected_database, discovered_databases = dashboard_database_profile()
+        diagnostics_db_path = Path(selected_database["path"])
+        connector = (lambda: open_sqlite(diagnostics_db_path, readonly=True)) if diagnostics_db_path.exists() else connect
+        with connector() as conn:
             table_names = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
             row_counts = {}
             for table_name in table_names:
                 row_counts[table_name] = conn.execute(f"SELECT COUNT(*) count FROM {quote_identifier(table_name)}").fetchone()["count"]
             diagnostics = {
-                "database_path": str(DB),
-                "database_exists": DB.exists(),
+                "database_path": selected_database["path"],
+                "write_database_path": str(DB),
+                "database_exists": selected_database["exists"],
+                "discovered_databases": discovered_databases,
                 "table_names": table_names,
                 "row_counts": row_counts,
                 "latest_booking": latest_row(conn, "bookings"),

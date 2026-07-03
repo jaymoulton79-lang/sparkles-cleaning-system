@@ -20,12 +20,14 @@ async function loadDiagnostics(){
     }
     if(!response.ok) throw new Error(data.error || 'Could not load diagnostics.');
     renderList(document.querySelector('#databaseSummary'), [
-      ['Database path', data.database_path],
+      ['Dashboard database path', data.database_path],
+      ['Application write path', data.write_database_path || data.database_path],
       ['Database exists', data.database_exists ? 'Yes' : 'No'],
       ['Current admin email', data.current_admin_email || 'Unknown'],
       ['Tables', (data.table_names || []).join(', ') || 'None']
     ]);
     renderList(document.querySelector('#tableCounts'), Object.entries(data.row_counts || {}).map(([name, count]) => [name, count]));
+    document.querySelector('#discoveredDatabases').textContent = prettyJson(data.discovered_databases);
     document.querySelector('#latestBooking').textContent = prettyJson(data.latest_booking);
     document.querySelector('#latestPayment').textContent = prettyJson(data.latest_stripe_payment);
     document.querySelector('#latestCleaner').textContent = prettyJson(data.latest_cleaner);
