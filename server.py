@@ -681,11 +681,25 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 conn.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
 
+    def request_is_secure(self):
+        forwarded_proto = self.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
+        forwarded = self.headers.get("Forwarded", "").lower()
+        return forwarded_proto == "https" or "proto=https" in forwarded or public_url().startswith("https://")
+
+    def cookie_attributes(self):
+        attrs = [f"HttpOnly", "SameSite=Lax", "Path=/", f"Max-Age={SESSION_DAYS * 86400}"]
+        if self.request_is_secure():
+            attrs.append("Secure")
+        return "; ".join(attrs)
+
     def auth_cookie(self, token):
-        return f"{SESSION_COOKIE}={urllib.parse.quote(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age={SESSION_DAYS * 86400}"
+        return f"{SESSION_COOKIE}={urllib.parse.quote(token)}; {self.cookie_attributes()}"
 
     def expired_cookie(self):
-        return f"{SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+        attrs = ["HttpOnly", "SameSite=Lax", "Path=/", "Max-Age=0"]
+        if self.request_is_secure():
+            attrs.append("Secure")
+        return f"{SESSION_COOKIE}=; {'; '.join(attrs)}"
 
     def redirect(self, location):
         self.send_response(302)

@@ -78,7 +78,10 @@ function renderReviews(rows){
 
 async function loadDashboard(){
   try{
-    const r=await fetch('/api/admin/dashboard');
+    const sessionResponse=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
+    const session=await sessionResponse.json();
+    if(!session.authenticated||session.session?.role!=='admin'){location.href='/admin/login';return}
+    const r=await fetch('/api/admin/dashboard',{credentials:'same-origin',cache:'no-store'});
     const data=await r.json();
     if(!r.ok){location.href='/admin/login';return}
     renderMetrics(data.cards);
@@ -92,6 +95,6 @@ async function loadDashboard(){
 }
 
 document.querySelector('#refreshDashboard').addEventListener('click',loadDashboard);
-document.querySelector('#adminLogout')?.addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/admin/login'});
+document.querySelector('#adminLogout')?.addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'});location.href='/admin/login'});
 loadDashboard();
 setInterval(loadDashboard,30000);
