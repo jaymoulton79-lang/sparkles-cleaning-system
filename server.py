@@ -285,6 +285,24 @@ def stripe_request(path, data=None, method="POST"):
         raise ValueError(details.get("error", {}).get("message", "Stripe could not process the request."))
 
 
+def stripe_get(path, params=None):
+    secret_key = runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY)
+    if not secret_key:
+        raise ValueError("Stripe test mode is not configured. Add STRIPE_SECRET_KEY to the server environment.")
+    query = urllib.parse.urlencode(params or {})
+    url = f"https://api.stripe.com/v1/{path.lstrip('/')}"
+    if query:
+        url += f"?{query}"
+    auth = base64.b64encode(f"{secret_key}:".encode()).decode()
+    request = urllib.request.Request(url, method="GET", headers={"Authorization": f"Basic {auth}"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        details = json.loads(error.read() or b"{}")
+        raise ValueError(details.get("error", {}).get("message", "Stripe could not process the request."))
+
+
 def stripe_configured():
     return bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
 
@@ -1750,7 +1768,12 @@ class Handler(BaseHTTPRequestHandler):
             return str(value or "")[:10]
 
         def is_active_cleaner(cleaner):
-            return str(get_value(cleaner, "active", "is_active", "enabled", default=1)).strip().lower() not in {"0", "false", "no", "inactive"}
+            inactive_values = {"0", "false", "no", "inactive", "disabled", "archived", "suspended", "deleted"}
+            active_value = get_value(cleaner, "active", "is_active", "enabled", "account_active", default=None)
+            if active_value is not None and str(active_value).strip().lower() in inactive_values:
+                return False
+            status = normalise(get_value(cleaner, "status", "account_status", "profile_status", default="active"))
+            return status not in inactive_values
 
         def is_converted_booking(booking):
             return normalise(get_value(booking, "payment_status", "stripe_status", "deposit_status", "payment_state")) in converted_booking_statuses
@@ -1795,6 +1818,42 @@ class Handler(BaseHTTPRequestHandler):
                         "source": "bookings.payment_status"
                     })
             return rows
+
+        def stripe_checkout_payment_rows(start_date):
+            if not stripe_configured():
+                return [], None
+            try:
+                start = datetime.fromisoformat(start_date).replace(tzinfo=business_tz)
+                created_gte = int(start.astimezone(timezone.utc).timestamp())
+                rows, starting_after = [], None
+                while True:
+                    params = {"limit": 100, "created[gte]": created_gte}
+                    if starting_after:
+                        params["starting_after"] = starting_after
+                    page = stripe_get("checkout/sessions", params)
+                    sessions = page.get("data", [])
+                    for session in sessions:
+                        if session.get("payment_status") != "paid":
+                            continue
+                        amount = int(session.get("amount_total") or 0)
+                        if amount <= 0:
+                            continue
+                        metadata = session.get("metadata") or {}
+                        created = datetime.fromtimestamp(int(session.get("created", 0)), timezone.utc).astimezone(business_tz)
+                        rows.append({
+                            "booking_id": metadata.get("booking_id") or session.get("client_reference_id"),
+                            "payment_type": normalise(metadata.get("payment_type") or "deposit"),
+                            "amount": amount,
+                            "created_at": created.date().isoformat(),
+                            "source": "stripe.checkout.sessions",
+                            "provider_payment_id": session.get("payment_intent") or session.get("id")
+                        })
+                    if not page.get("has_more") or not sessions:
+                        break
+                    starting_after = sessions[-1]["id"]
+                return rows, None
+            except (ValueError, TypeError, urllib.error.URLError) as error:
+                return [], str(error)
 
         def score_table(columns, kind):
             cols = {normalise(column) for column in columns}
@@ -1865,7 +1924,9 @@ class Handler(BaseHTTPRequestHandler):
                         ) latest ON latest.id=m.id
                     """).fetchall()
                 }
-            payment_rows = successful_payment_rows(bookings, payments)
+            stored_payment_rows = successful_payment_rows(bookings, payments)
+            stripe_payment_rows, stripe_payment_error = stripe_checkout_payment_rows(month_start_s)
+            payment_rows = stripe_payment_rows if stripe_payment_rows else stored_payment_rows
             revenue_today = money_between(payment_rows, today_s, today_s)
             revenue_week = money_between(payment_rows, week_start_s, today_s)
             revenue_month = money_between(payment_rows, month_start_s, today_s)
@@ -1924,8 +1985,11 @@ class Handler(BaseHTTPRequestHandler):
                     "dashboard_payments_used": len(payments),
                     "dashboard_cleaners_used": len(cleaners),
                     "dashboard_ai_conversations_used": len(conversations),
-                    "successful_payment_rows_used": len(payment_rows)
-                }
+                    "successful_payment_rows_used": len(payment_rows),
+                    "stripe_payment_rows_used": len(stripe_payment_rows),
+                    "stored_payment_rows_used": len(stored_payment_rows)
+                },
+                "stripe_payment_source_error": stripe_payment_error
             }
 
         conversion_rate = round((converted_bookings / total_bookings) * 100, 1) if total_bookings else 0
