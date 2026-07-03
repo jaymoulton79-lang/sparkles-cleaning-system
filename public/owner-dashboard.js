@@ -76,14 +76,20 @@ function renderReviews(rows){
   `).join(''):'<div class="empty-mini">No customer reviews recorded yet.</div>';
 }
 
+function sessionExpired(){
+  metricGrid.innerHTML='<div class="owner-card loading">Your admin session expired. Redirecting to login…</div>';
+  setTimeout(()=>{location.href='/admin/login?expired=1'},350);
+}
+
 async function loadDashboard(){
   try{
     const sessionResponse=await fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
     const session=await sessionResponse.json();
-    if(!session.authenticated||session.session?.role!=='admin'){location.href='/admin/login';return}
+    if(!session.authenticated||session.session?.role!=='admin'){sessionExpired();return}
     const r=await fetch('/api/admin/dashboard',{credentials:'same-origin',cache:'no-store'});
     const data=await r.json();
-    if(!r.ok){location.href='/admin/login';return}
+    if(r.status===401){sessionExpired();return}
+    if(!r.ok)throw new Error(data.error||'Could not load dashboard.');
     renderMetrics(data.cards);
     renderRevenue(data.charts.revenue_days||[]);
     renderStatuses(data.charts.booking_statuses||[]);

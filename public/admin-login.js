@@ -1,6 +1,11 @@
 const form = document.querySelector('#loginForm');
 const alertBox = document.querySelector('#authAlert');
 
+if (new URLSearchParams(location.search).get('expired') === '1') {
+  alertBox.textContent = 'Your admin session expired. Please log in again.';
+  alertBox.className = 'alert error';
+}
+
 form.onsubmit = async event => {
   event.preventDefault();
   alertBox.className = 'alert';
