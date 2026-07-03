@@ -15,6 +15,7 @@ import smtplib
 import logging
 import sys
 import secrets
+import re
 from email.message import EmailMessage
 import automation
 from datetime import datetime, timedelta, timezone
@@ -87,6 +88,29 @@ DEFAULT_BUSINESS_HOURS = "Monday to Friday 8am-6pm, Saturday 9am-2pm, closed Sun
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+def extract_intro_name(message):
+    first_sentence = re.split(r"[.!?]", message or "", 1)[0].strip()
+    if not first_sentence:
+        return ""
+    patterns = [
+        r"\bmy\s+name\s+is\s+([A-Za-z][A-Za-z-]*)",
+        r"\bi\s+am\s+([A-Za-z][A-Za-z-]*)",
+        r"\bi['’`´]m\s+([A-Za-z][A-Za-z-]*)",
+        r"\bim\s+([A-Za-z][A-Za-z-]*)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, first_sentence, re.I)
+        if match:
+            return match.group(1).title()
+    intro_words = [
+        word for word in re.findall(r"[A-Za-z][A-Za-z-]*", first_sentence)
+        if word.lower() not in {"hi", "hello", "hey", "i", "im", "m", "am", "my", "name", "is", "need", "want", "looking", "for"}
+    ]
+    if intro_words and any(marker in first_sentence.lower() for marker in ("hi", "hello", "i'm", "i’m", "im ", "i am", "my name")):
+        return intro_words[-1].title()
+    return ""
 
 
 def hash_password(password):
@@ -1357,6 +1381,15 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "customer", message, now))
                 details = json.loads(convo["collected_details"] or "{}")
                 details = self.extract_receptionist_details(message, details)
+                if not details.get("name"):
+                    intro_name = extract_intro_name(message)
+                    if intro_name:
+                        details["name"] = intro_name
+                if not details.get("name"):
+                    first_sentence = re.split(r"[.!?]", message, 1)[0]
+                    capitalised = [word for word in re.findall(r"\b[A-Z][a-z]{1,}\b", first_sentence) if word.lower() not in {"hi", "hello", "cambridge", "sparkles"}]
+                    if capitalised:
+                        details["name"] = capitalised[-1]
                 conn.execute("UPDATE ai_conversations SET collected_details=?,customer_name=?,customer_email=?,customer_phone=?,updated_at=? WHERE id=?",
                     (json.dumps(details), details.get("name", convo["customer_name"]), details.get("email", convo["customer_email"]), details.get("phone", convo["customer_phone"]), now, conversation_id))
                 if convo["admin_takeover"]:
@@ -1365,6 +1398,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"reply": reply, "admin_takeover": True, "details": details})
                 booking_id = convo["booking_id"]
             reply, quote, booking = self.build_receptionist_reply(conversation_id, details, existing_booking_id=booking_id)
+            if not details.get("name"):
+                intro_name = extract_intro_name(message)
+                if intro_name:
+                    details["name"] = intro_name
+                    reply = reply.replace("Thanks for getting in touch", f"Hi {details['name']}! Thanks for getting in touch")
+                    with connect() as conn:
+                        conn.execute("UPDATE ai_conversations SET collected_details=?,customer_name=?,updated_at=? WHERE id=?", (json.dumps(details), details["name"], utcnow().isoformat(), conversation_id))
             with connect() as conn:
                 conn.execute("INSERT INTO ai_messages(conversation_id,sender,message,created_at) VALUES (?,?,?,?)", (conversation_id, "ai", reply, utcnow().isoformat()))
                 conn.execute("UPDATE ai_conversations SET updated_at=? WHERE id=?", (utcnow().isoformat(), conversation_id))
@@ -1375,6 +1415,39 @@ class Handler(BaseHTTPRequestHandler):
     def extract_receptionist_details(self, message, details):
         lower = message.lower()
         settings = ai_settings()
+        if not details.get("name"):
+            intro_name = extract_intro_name(message)
+            if intro_name:
+                details["name"] = intro_name
+        if not details.get("name"):
+            for marker in ("i'm ", "i’m ", "im ", "i am ", "my name is "):
+                if marker in lower:
+                    after = message[lower.index(marker) + len(marker):].strip()
+                    candidate = re.split(r"[^A-Za-z-]", after, 1)[0]
+                    if candidate:
+                        details["name"] = candidate.title()
+                    break
+        if not details.get("name"):
+            loose_name = re.search(r"\bi.{0,3}m\s+([A-Za-z-]+)", message, re.I)
+            if loose_name:
+                details["name"] = loose_name.group(1).strip().title()
+        if not details.get("name"):
+            first_sentence = re.split(r"[.!?]", message, 1)[0]
+            intro_words = [word for word in re.findall(r"[A-Za-z-]+", first_sentence) if word.lower() not in {"hi", "hello", "hey", "i", "im", "m", "am", "my", "name", "is"}]
+            if intro_words and any(word in first_sentence.lower() for word in ("hi", "hello", "i", "name")):
+                details["name"] = intro_words[-1].title()
+        name_match = re.search(r"(?:\bi\s+am\b|\bi['’]?m\b|\bim\b|\bmy name is\b)\s+([a-z][a-z-]*)", lower)
+        if name_match and not details.get("name"):
+            details["name"] = name_match.group(1).strip().title()
+        elif not details.get("name"):
+            normalised = re.sub(r"[^a-z\s]", " ", lower)
+            fallback = re.search(r"(?:\bi\s+am\b|\bi\s+m\b|\bim\b|\bmy\s+name\s+is\b)\s+([a-z][a-z-]*)", normalised)
+            if fallback:
+                details["name"] = fallback.group(1).strip().title()
+            else:
+                hi_fallback = re.search(r"\bhi\s+i\s+m\s+([a-z][a-z-]*)", normalised)
+                if hi_fallback:
+                    details["name"] = hi_fallback.group(1).strip().title()
         for service in settings["pricing"]:
             if service.lower() in lower:
                 details["clean_type"] = service
@@ -1386,18 +1459,24 @@ class Handler(BaseHTTPRequestHandler):
             details.setdefault("clean_type", "End of tenancy")
         elif "one off" in lower or "one-off" in lower:
             details.setdefault("clean_type", "One-off clean")
-        postcode_match = __import__("re").search(r"\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b", message.upper())
+        if "cambridge" in lower:
+            details.setdefault("location", "Cambridge")
+        postcode_match = re.search(r"\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b", message.upper())
         if postcode_match:
             details["postcode"] = postcode_match.group(0).upper()
-        email_match = __import__("re").search(r"[\w.\-+]+@[\w.\-]+\.\w+", message)
+        email_match = re.search(r"[\w.\-+]+@[\w.\-]+\.\w+", message)
         if email_match:
             details["email"] = email_match.group(0).lower()
-        phone_match = __import__("re").search(r"(\+?\d[\d\s-]{8,}\d)", message)
+        phone_match = re.search(r"(\+?\d[\d\s-]{8,}\d)", message)
         if phone_match:
             details["phone"] = phone_match.group(1).strip()
-        date_match = __import__("re").search(r"\b20\d{2}-\d{2}-\d{2}\b", message)
+        date_match = re.search(r"\b20\d{2}-\d{2}-\d{2}\b", message)
         if date_match:
             details["preferred_date"] = date_match.group(0)
+        elif "next friday" in lower:
+            today = datetime.now().date()
+            days = (4 - today.weekday()) % 7 or 7
+            details["preferred_date"] = (today + timedelta(days=days)).isoformat()
         for number in range(0, 8):
             if f"{number} bed" in lower or f"{number}-bed" in lower:
                 details["bedrooms"] = number
@@ -1415,9 +1494,23 @@ class Handler(BaseHTTPRequestHandler):
             marker = f"{key}:"
             if marker in lower:
                 details[key] = message[lower.index(marker)+len(marker):].strip().split("\n")[0].strip()
+        if not details.get("name"):
+            first_sentence = re.split(r"[.!?]", message, 1)[0]
+            intro_words = [word for word in re.findall(r"[A-Za-z-]+", first_sentence) if word.lower() not in {"hi", "hello", "hey", "i", "im", "m", "am", "my", "name", "is"}]
+            if intro_words and any(word in first_sentence.lower() for word in ("hi", "hello", "i", "name")):
+                details["name"] = intro_words[-1].title()
         return details
 
     def build_receptionist_reply(self, conversation_id, details, existing_booking_id=None):
+        if not details.get("name"):
+            with connect() as conn:
+                latest_customer = conn.execute("SELECT message FROM ai_messages WHERE conversation_id=? AND sender='customer' ORDER BY id DESC LIMIT 1", (conversation_id,)).fetchone()
+            if latest_customer:
+                intro_name = extract_intro_name(latest_customer["message"])
+                if intro_name:
+                    details["name"] = intro_name
+                    with connect() as conn:
+                        conn.execute("UPDATE ai_conversations SET collected_details=?,customer_name=?,updated_at=? WHERE id=?", (json.dumps(details), details["name"], utcnow().isoformat(), conversation_id))
         required = BOOKING_FIELDS
         missing = [field for field in required if details.get(field) in (None, "")]
         quote = None
@@ -1433,6 +1526,47 @@ class Handler(BaseHTTPRequestHandler):
             return f"Lovely, I have created your Sparkles booking {booking['reference']}. The total is £{booking['total_amount']/100:.2f} and the deposit is £{booking['deposit_amount']/100:.2f}.{pay_line}", quote, booking
         if existing_booking_id:
             return "Your booking has already been created. If you need to change anything, the Sparkles team can help from here.", quote, None
+        quote_required = ["clean_type", "bedrooms", "bathrooms", "postcode", "email"]
+        quote_missing = [field for field in quote_required if details.get(field) in (None, "")]
+        if details.get("location") and not details.get("postcode"):
+            quote_missing = [field for field in quote_missing if field != "postcode"] + ["postcode"]
+        provided_labels = {
+            "clean_type": details.get("clean_type"),
+            "bedrooms": f"{details.get('bedrooms')} bedroom{'s' if str(details.get('bedrooms')) != '1' else ''}" if details.get("bedrooms") not in (None, "") else None,
+            "bathrooms": f"{details.get('bathrooms')} bathroom{'s' if str(details.get('bathrooms')) != '1' else ''}" if details.get("bathrooms") not in (None, "") else None,
+            "location": details.get("postcode") or details.get("location"),
+            "preferred_date": details.get("preferred_date"),
+            "preferred_time": details.get("preferred_time")
+        }
+        summary = [value for value in provided_labels.values() if value]
+        customer_name = details.get("name", "").split(" ")[0]
+        greeting = f"Hi {customer_name}! Thanks for getting in touch. I can certainly help." if customer_name else "Thanks for getting in touch — I can certainly help."
+        if quote_missing:
+            friendly_missing = {
+                "clean_type": "Type of clean",
+                "bedrooms": "Number of bedrooms",
+                "bathrooms": "Number of bathrooms",
+                "postcode": "Your postcode",
+                "email": "Your email address"
+            }
+            reply = greeting
+            if summary:
+                reply += "\n\nBased on what you have told me, I have:\n" + "\n".join(f"✅ {item}" for item in summary)
+            reply += "\n\nTo give you an accurate quote I just need:\n" + "\n".join(f"• {friendly_missing[field]}" for field in quote_missing[:5])
+            reply += "\n\nOnce I have those I will generate your quote and send you the secure booking link."
+            return reply, quote, None
+        if quote and any(field in missing for field in ("name", "phone", "address", "preferred_date", "preferred_time")):
+            booking_link = ai_settings()["booking_url"]
+            remaining = {
+                "name": "your full name", "phone": "your phone number", "address": "the full cleaning address",
+                "preferred_date": "your preferred date", "preferred_time": "your preferred time"
+            }
+            ask = [remaining[field] for field in ("name", "phone", "address", "preferred_date", "preferred_time") if field in missing]
+            reply = f"{greeting}\n\nYour estimated quote is £{quote['total_amount']/100:.2f}, with a 25% deposit of £{quote['deposit_amount']/100:.2f}."
+            reply += f"\n\nYou can also complete the secure booking form here: {booking_link}"
+            if ask:
+                reply += "\n\nIf you would like me to prepare the booking in chat, I just need " + ", ".join(ask[:3]) + "."
+            return reply, quote, None
         question_labels = {
             "name": "your full name", "phone": "your phone number", "email": "your email address",
             "address": "the cleaning address", "postcode": "the postcode", "clean_type": "the type of clean",
