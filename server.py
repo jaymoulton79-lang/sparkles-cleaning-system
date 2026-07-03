@@ -1793,6 +1793,9 @@ class Handler(BaseHTTPRequestHandler):
 
         def is_active_cleaner(cleaner):
             inactive_values = {"0", "false", "no", "inactive", "disabled", "archived", "suspended", "deleted"}
+            role_value = get_value(cleaner, "role", "user_role", "account_type", "user_type", "type", default=None)
+            if role_value is not None and "cleaner" not in normalise(role_value):
+                return False
             active_value = get_value(cleaner, "active", "is_active", "enabled", "account_active", default=None)
             if active_value is not None and str(active_value).strip().lower() in inactive_values:
                 return False
@@ -1867,8 +1870,10 @@ class Handler(BaseHTTPRequestHandler):
                             continue
                         metadata = session.get("metadata") or {}
                         created = datetime.fromtimestamp(int(session.get("created", 0)), timezone.utc).astimezone(business_tz)
+                        booking_id = metadata.get("booking_id") or session.get("client_reference_id") or session.get("id")
                         rows.append({
-                            "booking_id": metadata.get("booking_id") or session.get("client_reference_id"),
+                            "booking_id": booking_id,
+                            "booking_reference": metadata.get("booking_reference") or metadata.get("reference") or booking_id,
                             "payment_type": normalise(metadata.get("payment_type") or "deposit"),
                             "amount": amount,
                             "created_at": created.date().isoformat(),
@@ -1890,7 +1895,7 @@ class Handler(BaseHTTPRequestHandler):
             elif kind == "payments":
                 signals = {"payment_type", "provider_payment_id", "booking_id", "amount", "amount_paid", "payment_status", "stripe_status", "paid_at"}
             elif kind == "cleaners":
-                signals = {"travel_radius", "hourly_rate", "availability", "services", "dbs_status", "insurance_status", "postcode", "active"}
+                signals = {"travel_radius", "hourly_rate", "availability", "services", "dbs_status", "insurance_status", "postcode", "active", "is_active", "enabled", "account_status", "profile_status", "role", "user_role", "account_type", "user_type"}
             else:
                 signals = {"admin_takeover", "collected_details", "conversation_id", "customer_email", "customer_phone", "booking_id"}
             return sum(1 for signal in signals if signal in cols)
@@ -1898,9 +1903,11 @@ class Handler(BaseHTTPRequestHandler):
         def choose_table(table_meta, preferred, kind):
             candidates = [table for table in table_meta if not table["name"].startswith("sqlite_")]
             ranked = sorted(candidates, key=lambda table: (
+                1 if score_table(table["columns"], kind) > 0 and table["row_count"] > 0 else 0,
                 1 if table["name"] == preferred and table["row_count"] > 0 else 0,
                 score_table(table["columns"], kind),
-                table["row_count"]
+                table["row_count"],
+                1 if table["name"] == preferred else 0
             ), reverse=True)
             return ranked[0]["name"] if ranked and score_table(ranked[0]["columns"], kind) > 0 else preferred
 
@@ -1943,6 +1950,27 @@ class Handler(BaseHTTPRequestHandler):
                 return amount * 4
             return amount
 
+        def stripe_booking_rows(payments):
+            seen, rows = set(), []
+            for payment in payments:
+                identity = payment_booking_identity(payment)
+                if identity in (None, "") or identity in seen:
+                    continue
+                seen.add(identity)
+                total = inferred_booking_total_from_payment(payment)
+                rows.append({
+                    "id": identity,
+                    "reference": payment.get("booking_reference") or identity,
+                    "status": "Deposit Paid",
+                    "payment_status": "Deposit Paid",
+                    "total_amount": total,
+                    "deposit_amount": int(payment.get("amount") or 0) if normalise(payment.get("payment_type")) == "deposit" else 0,
+                    "created_at": payment.get("created_at"),
+                    "preferred_date": payment.get("created_at"),
+                    "_source": "stripe.checkout.sessions"
+                })
+            return rows
+
         selected_database, discovered_databases = dashboard_database_profile()
         dashboard_db_path = Path(selected_database["path"])
         connector = (lambda: open_sqlite(dashboard_db_path, readonly=True)) if dashboard_db_path.exists() else connect
@@ -1975,6 +2003,8 @@ class Handler(BaseHTTPRequestHandler):
             stored_payment_rows = successful_payment_rows(bookings, payments)
             stripe_payment_rows, stripe_payment_error = stripe_checkout_payment_rows(month_start_s)
             payment_rows = stripe_payment_rows if stripe_payment_rows else stored_payment_rows
+            if not bookings and stripe_payment_rows:
+                bookings = stripe_booking_rows(stripe_payment_rows)
             revenue_today = money_between(payment_rows, today_s, today_s, start_ts=today_start_ts, end_ts=tomorrow_start_ts)
             revenue_week = money_between(payment_rows, week_start_s, today_s, start_ts=week_start_ts, end_ts=tomorrow_start_ts)
             revenue_month = money_between(payment_rows, month_start_s, today_s, start_ts=month_start_ts, end_ts=tomorrow_start_ts)
