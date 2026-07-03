@@ -1610,23 +1610,49 @@ class Handler(BaseHTTPRequestHandler):
         week_start_s, month_start_s = week_start.isoformat(), month_start.isoformat()
         paid_statuses = ("Paid", "Succeeded", "succeeded", "paid")
 
-        def money_between(conn, start_date, end_date=None, payment_type=None):
-            clauses = ["status IN (?,?,?,?)", "substr(created_at,1,10) >= ?"]
-            params = [*paid_statuses, start_date]
-            if end_date:
-                clauses.append("substr(created_at,1,10) <= ?")
-                params.append(end_date)
-            if payment_type:
-                clauses.append("payment_type = ?")
-                params.append(payment_type)
-            row = conn.execute(f"SELECT COALESCE(SUM(amount),0) total FROM payments WHERE {' AND '.join(clauses)}", params).fetchone()
-            return int(row["total"] or 0)
+        def successful_payment_rows(conn):
+            rows = [dict(row) for row in conn.execute("""
+                SELECT p.booking_id,p.payment_type,p.amount,p.created_at,'payment' source
+                FROM payments p
+                WHERE p.status IN (?,?,?,?)
+            """, paid_statuses).fetchall()]
+            paid_types_by_booking = {}
+            for row in rows:
+                paid_types_by_booking.setdefault(row["booking_id"], set()).add(row["payment_type"])
+            inferred = conn.execute("""
+                SELECT id,payment_status,deposit_amount,balance_amount,total_amount,created_at
+                FROM bookings
+                WHERE payment_status IN ('Deposit Paid','Paid in Full')
+            """).fetchall()
+            for booking in inferred:
+                paid_at = booking["created_at"]
+                existing_types = paid_types_by_booking.get(booking["id"], set())
+                has_full_payment = "full" in existing_types
+                if not has_full_payment and "deposit" not in existing_types:
+                    rows.append({"booking_id": booking["id"], "payment_type": "deposit", "amount": int(booking["deposit_amount"] or 0), "created_at": paid_at, "source": "booking"})
+                if booking["payment_status"] == "Paid in Full" and not has_full_payment and "balance" not in existing_types:
+                    rows.append({"booking_id": booking["id"], "payment_type": "balance", "amount": int(booking["balance_amount"] or 0), "created_at": paid_at, "source": "booking"})
+            return rows
+
+        def money_between(rows, start_date, end_date=None, payment_type=None):
+            total = 0
+            for row in rows:
+                paid_date = str(row.get("created_at") or "")[:10]
+                if paid_date < start_date:
+                    continue
+                if end_date and paid_date > end_date:
+                    continue
+                if payment_type and row.get("payment_type") != payment_type:
+                    continue
+                total += int(row.get("amount") or 0)
+            return total
 
         with connect() as conn:
-            revenue_today = money_between(conn, today_s, today_s)
-            revenue_week = money_between(conn, week_start_s, today_s)
-            revenue_month = money_between(conn, month_start_s, today_s)
-            deposits_today = money_between(conn, today_s, today_s, "deposit")
+            payment_rows = successful_payment_rows(conn)
+            revenue_today = money_between(payment_rows, today_s, today_s)
+            revenue_week = money_between(payment_rows, week_start_s, today_s)
+            revenue_month = money_between(payment_rows, month_start_s, today_s)
+            deposits_today = money_between(payment_rows, today_s, today_s, "deposit")
             today_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=?", (today_s,)).fetchone()["count"]
             tomorrow_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=?", (tomorrow_s,)).fetchone()["count"]
             waiting_assignment = conn.execute("""SELECT COUNT(*) count FROM bookings
@@ -1658,7 +1684,7 @@ class Handler(BaseHTTPRequestHandler):
                 revenue_days.append({
                     "date": day_s,
                     "label": day.strftime("%a"),
-                    "amount": money_between(conn, day_s, day_s)
+                    "amount": money_between(payment_rows, day_s, day_s)
                 })
             upcoming_rows = [dict(row) for row in conn.execute("""SELECT b.id,b.reference,b.name,b.clean_type,b.preferred_date,b.preferred_time,b.status,c.name cleaner_name
                 FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
