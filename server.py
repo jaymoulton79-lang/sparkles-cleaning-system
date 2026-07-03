@@ -557,6 +557,15 @@ def initialise():
             provider_payment_id TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS customer_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER REFERENCES bookings(id),
+            customer_name TEXT NOT NULL DEFAULT '',
+            rating INTEGER NOT NULL DEFAULT 5,
+            comment TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'Manual',
+            created_at TEXT NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS app_config (
             key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', is_secret INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL)""")
@@ -737,6 +746,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.send_json(ai_settings())
+        if path == "/api/admin/dashboard":
+            if not self.require_admin():
+                return
+            return self.owner_dashboard()
         if path == "/api/receptionist/conversations":
             return self.receptionist_conversations()
         if path.startswith("/api/receptionist/conversations/") and path.endswith("/messages"):
@@ -867,7 +880,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(PUBLIC / "customer.html")
         if path in ("/reset-password", "/reset-password/"):
             return self.send_file(PUBLIC / "reset-password.html")
-        if path in ("/admin", "/admin/"):
+        if path in ("/admin", "/admin/", "/admin/dashboard", "/admin/dashboard/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "owner-dashboard.html")
+        if path in ("/admin/bookings", "/admin/bookings/"):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "admin.html")
@@ -911,7 +928,7 @@ class Handler(BaseHTTPRequestHandler):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html"}
+        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -1583,6 +1600,96 @@ class Handler(BaseHTTPRequestHandler):
         if quote:
             intro = f"Based on that, the estimated total is £{quote['total_amount']/100:.2f}. The 25% deposit would be £{quote['deposit_amount']/100:.2f}."
         return intro + " Could you please tell me " + ", ".join(question_labels[field] for field in missing[:3]) + "?", quote, None
+
+    def owner_dashboard(self):
+        today = datetime.now().date()
+        tomorrow = today + timedelta(days=1)
+        week_start = today - timedelta(days=today.weekday())
+        month_start = today.replace(day=1)
+        today_s, tomorrow_s = today.isoformat(), tomorrow.isoformat()
+        week_start_s, month_start_s = week_start.isoformat(), month_start.isoformat()
+        paid_statuses = ("Paid", "Succeeded", "succeeded", "paid")
+
+        def money_between(conn, start_date, end_date=None, payment_type=None):
+            clauses = ["status IN (?,?,?,?)", "substr(created_at,1,10) >= ?"]
+            params = [*paid_statuses, start_date]
+            if end_date:
+                clauses.append("substr(created_at,1,10) <= ?")
+                params.append(end_date)
+            if payment_type:
+                clauses.append("payment_type = ?")
+                params.append(payment_type)
+            row = conn.execute(f"SELECT COALESCE(SUM(amount),0) total FROM payments WHERE {' AND '.join(clauses)}", params).fetchone()
+            return int(row["total"] or 0)
+
+        with connect() as conn:
+            revenue_today = money_between(conn, today_s, today_s)
+            revenue_week = money_between(conn, week_start_s, today_s)
+            revenue_month = money_between(conn, month_start_s, today_s)
+            deposits_today = money_between(conn, today_s, today_s, "deposit")
+            today_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=?", (today_s,)).fetchone()["count"]
+            tomorrow_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=?", (tomorrow_s,)).fetchone()["count"]
+            waiting_assignment = conn.execute("""SELECT COUNT(*) count FROM bookings
+                WHERE cleaner_id IS NULL AND status NOT IN ('Completed','Cancelled')""").fetchone()["count"]
+            in_progress = conn.execute("SELECT COUNT(*) count FROM bookings WHERE status='In Progress'").fetchone()["count"]
+            completed_today = conn.execute("""SELECT COUNT(*) count FROM bookings
+                WHERE status='Completed' AND (substr(COALESCE(completed_at,''),1,10)=? OR (completed_at IS NULL AND preferred_date=?))""", (today_s, today_s)).fetchone()["count"]
+            active_cleaners = conn.execute("SELECT COUNT(*) count FROM cleaners WHERE active=1").fetchone()["count"]
+            total_bookings = conn.execute("SELECT COUNT(*) count FROM bookings").fetchone()["count"]
+            converted_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status IN ('Deposit Paid','Paid in Full')").fetchone()["count"]
+            average_job = conn.execute("SELECT COALESCE(AVG(total_amount),0) value FROM bookings WHERE total_amount > 0").fetchone()["value"] or 0
+            ai_waiting = conn.execute("""SELECT COUNT(*) count FROM ai_conversations c
+                WHERE c.admin_takeover=1
+                   OR c.status='Admin Takeover'
+                   OR EXISTS (
+                        SELECT 1 FROM ai_messages m
+                        WHERE m.conversation_id=c.id
+                          AND m.sender='customer'
+                          AND m.id=(SELECT MAX(id) FROM ai_messages WHERE conversation_id=c.id)
+                   )""").fetchone()["count"]
+            recent_reviews = [dict(row) for row in conn.execute("""SELECT r.*, b.reference booking_reference
+                FROM customer_reviews r LEFT JOIN bookings b ON b.id=r.booking_id
+                ORDER BY r.created_at DESC LIMIT 5""").fetchall()]
+            status_rows = [dict(row) for row in conn.execute("SELECT status, COUNT(*) count FROM bookings GROUP BY status ORDER BY count DESC").fetchall()]
+            revenue_days = []
+            for offset in range(6, -1, -1):
+                day = today - timedelta(days=offset)
+                day_s = day.isoformat()
+                revenue_days.append({
+                    "date": day_s,
+                    "label": day.strftime("%a"),
+                    "amount": money_between(conn, day_s, day_s)
+                })
+            upcoming_rows = [dict(row) for row in conn.execute("""SELECT b.id,b.reference,b.name,b.clean_type,b.preferred_date,b.preferred_time,b.status,c.name cleaner_name
+                FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
+                WHERE b.preferred_date IN (?,?)
+                ORDER BY b.preferred_date,b.preferred_time LIMIT 10""", (today_s, tomorrow_s)).fetchall()]
+
+        conversion_rate = round((converted_bookings / total_bookings) * 100, 1) if total_bookings else 0
+        return self.send_json({
+            "as_of": utcnow().isoformat(),
+            "cards": {
+                "revenue_today": revenue_today,
+                "revenue_week": revenue_week,
+                "revenue_month": revenue_month,
+                "deposits_today": deposits_today,
+                "today_bookings": today_bookings,
+                "tomorrow_bookings": tomorrow_bookings,
+                "waiting_assignment": waiting_assignment,
+                "in_progress": in_progress,
+                "completed_today": completed_today,
+                "active_cleaners": active_cleaners,
+                "ai_waiting_review": ai_waiting,
+                "booking_conversion_rate": conversion_rate,
+                "average_job_value": int(round(average_job or 0))
+            },
+            "charts": {
+                "revenue_days": revenue_days,
+                "booking_statuses": status_rows
+            },
+            "upcoming": upcoming_rows,
+            "reviews": recent_reviews
+        })
 
     def receptionist_conversations(self):
         if not self.require_admin():

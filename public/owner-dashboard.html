@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Owner Command Centre | Sparkles Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/owner-dashboard.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header><nav class="nav">
+    <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Owner</small></span></a>
+    <div class="admin-nav"><a class="active" href="/admin/dashboard">Dashboard</a><a href="/admin/bookings">Bookings</a><a href="/admin/calendar">Calendar</a><a href="/admin/cleaners">Cleaners</a><a href="/admin/automations">Automations</a><a href="/admin/ai-office">AI Office Manager</a><a href="/admin/receptionist">AI Receptionist</a><a href="/admin/setup">Setup</a><button class="row-button" id="adminLogout">Log out</button></div>
+  </nav></header>
+  <main class="owner-page">
+    <div class="owner-hero">
+      <div>
+        <div class="eyebrow">Sparkles Owner Command Centre</div>
+        <h1>Today at a glance</h1>
+        <p>Revenue, bookings, cleaners and AI follow-ups in one calm control room.</p>
+      </div>
+      <button class="refresh-button" id="refreshDashboard">Refresh</button>
+    </div>
+
+    <section class="owner-grid" id="metricGrid">
+      <div class="owner-card loading">Loading dashboard…</div>
+    </section>
+
+    <section class="owner-layout">
+      <article class="owner-panel">
+        <div class="panel-head"><div><h2>Revenue this week</h2><p>Successful payments recorded each day.</p></div></div>
+        <div class="bar-chart" id="revenueChart"></div>
+      </article>
+      <article class="owner-panel">
+        <div class="panel-head"><div><h2>Booking status mix</h2><p>Where jobs are in the pipeline.</p></div></div>
+        <div class="status-chart" id="statusChart"></div>
+      </article>
+    </section>
+
+    <section class="owner-layout">
+      <article class="owner-panel">
+        <div class="panel-head"><div><h2>Today and tomorrow</h2><p>Upcoming work needing your attention.</p></div><a href="/admin/calendar">Open calendar</a></div>
+        <div id="upcomingJobs" class="mini-list"></div>
+      </article>
+      <article class="owner-panel">
+        <div class="panel-head"><div><h2>Recent customer reviews</h2><p>Latest feedback once reviews are collected.</p></div></div>
+        <div id="recentReviews" class="mini-list"></div>
+      </article>
+    </section>
+  </main>
+  <script src="/owner-dashboard.js"></script>
+</body>
+</html>
