@@ -12,6 +12,7 @@ const metricConfig=[
   ['Revenue this week','revenue_week','money','Monday to today'],
   ['Revenue this month','revenue_month','money','Month to date'],
   ['Deposits today','deposits_today','money','Deposits received today'],
+  ['Total bookings','total_bookings','number','All booking requests'],
   ["Today's bookings",'today_bookings','number','Scheduled for today'],
   ["Tomorrow's bookings",'tomorrow_bookings','number','Scheduled for tomorrow'],
   ['Waiting assignment','waiting_assignment','warning','Jobs needing a cleaner'],
@@ -20,7 +21,7 @@ const metricConfig=[
   ['Active cleaners','active_cleaners','number','Available cleaner accounts'],
   ['AI review queue','ai_waiting_review','warning','Conversations to check'],
   ['Conversion rate','booking_conversion_rate','percent','Paid deposit bookings'],
-  ['Average job value','average_job_value','money','Across quoted bookings']
+  ['Average booking value','average_job_value','money','Across quoted bookings']
 ];
 
 function formatMetric(type,value){

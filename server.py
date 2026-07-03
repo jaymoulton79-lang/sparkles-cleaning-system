@@ -24,6 +24,7 @@ from email.policy import default
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -1602,7 +1603,8 @@ class Handler(BaseHTTPRequestHandler):
         return intro + " Could you please tell me " + ", ".join(question_labels[field] for field in missing[:3]) + "?", quote, None
 
     def owner_dashboard(self):
-        today = datetime.now().date()
+        business_tz = ZoneInfo("Europe/London")
+        today = datetime.now(business_tz).date()
         tomorrow = today + timedelta(days=1)
         week_start = today - timedelta(days=today.weekday())
         month_start = today.replace(day=1)
@@ -1699,6 +1701,7 @@ class Handler(BaseHTTPRequestHandler):
                 "revenue_week": revenue_week,
                 "revenue_month": revenue_month,
                 "deposits_today": deposits_today,
+                "total_bookings": total_bookings,
                 "today_bookings": today_bookings,
                 "tomorrow_bookings": tomorrow_bookings,
                 "waiting_assignment": waiting_assignment,
