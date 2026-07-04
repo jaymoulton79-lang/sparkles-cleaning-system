@@ -2016,13 +2016,28 @@ class Handler(BaseHTTPRequestHandler):
             payment_rows = stripe_payment_rows if stripe_payment_rows else stored_payment_rows
             if not bookings and stripe_payment_rows:
                 bookings = stripe_booking_rows(stripe_payment_rows)
+            paid_deposit_booking_identities = {
+                str(payment_booking_identity(payment))
+                for payment in payment_rows
+                if payment_booking_identity(payment) not in (None, "")
+                and normalise(payment.get("payment_type")) == "deposit"
+            }
             revenue_today = money_between(payment_rows, today_s, today_s, start_ts=today_start_ts, end_ts=tomorrow_start_ts)
             revenue_week = money_between(payment_rows, week_start_s, today_s, start_ts=week_start_ts, end_ts=tomorrow_start_ts)
             revenue_month = money_between(payment_rows, month_start_s, today_s, start_ts=month_start_ts, end_ts=tomorrow_start_ts)
             deposits_today = money_between(payment_rows, today_s, today_s, "deposit", start_ts=today_start_ts, end_ts=tomorrow_start_ts)
             today_bookings = sum(1 for booking in bookings if date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)
             tomorrow_bookings = sum(1 for booking in bookings if date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == tomorrow_s)
-            waiting_assignment = sum(1 for booking in bookings if not get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner") and normalise(get_value(booking, "status", "booking_status")) not in {"completed", "cancelled", "canceled"})
+            waiting_assignment = sum(
+                1 for booking in bookings
+                if (
+                    str(booking_identity(booking)) in paid_deposit_booking_identities
+                    or normalise(get_value(booking, "status", "booking_status")) == "deposit paid"
+                    or normalise(get_value(booking, "payment_status", "deposit_status")) == "deposit paid"
+                )
+                and not get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner")
+                and normalise(get_value(booking, "status", "booking_status")) not in {"completed", "cancelled", "canceled"}
+            )
             in_progress = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "in progress")
             completed_today = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "completed" and (date_part(get_value(booking, "completed_at", "completed_date", "finished_at")) == today_s or (not get_value(booking, "completed_at", "completed_date", "finished_at") and date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)))
             active_cleaners = sum(1 for cleaner in cleaners if is_active_cleaner(cleaner))
