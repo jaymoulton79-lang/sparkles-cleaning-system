@@ -28,6 +28,8 @@ async function loadDiagnostics(){
     ]);
     renderList(document.querySelector('#tableCounts'), Object.entries(data.row_counts || {}).map(([name, count]) => [name, count]));
     document.querySelector('#discoveredDatabases').textContent = prettyJson(data.discovered_databases);
+    document.querySelector('#emailProvider').textContent = prettyJson(data.email_provider);
+    document.querySelector('#smtpNetwork').textContent = prettyJson(data.smtp_network);
     document.querySelector('#latestBooking').textContent = prettyJson(data.latest_booking);
     document.querySelector('#latestPayment').textContent = prettyJson(data.latest_stripe_payment);
     document.querySelector('#latestCleaner').textContent = prettyJson(data.latest_cleaner);

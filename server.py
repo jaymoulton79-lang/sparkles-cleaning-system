@@ -12,12 +12,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import smtplib
+import socket
 import logging
 import sys
 import secrets
 import re
 import html as html_lib
 from email.message import EmailMessage
+from email.utils import parseaddr
 import automation
 from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
@@ -42,6 +44,9 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
+EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "").strip().lower()
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 ADMIN_SETUP_TOKEN = os.environ.get("ADMIN_SETUP_TOKEN", "")
 BOOTSTRAP_ADMIN_EMAIL = os.environ.get("BOOTSTRAP_ADMIN_EMAIL", "labcontractors@outlook.com").strip().lower()
 BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "").strip()
@@ -174,20 +179,239 @@ def smtp_diagnostics():
         "password_present": bool(config["password"]),
         "from": config["from"],
         "mode": "ssl" if config["port"] == 465 else "starttls",
+        "network_family": "ipv4",
+    }
+
+
+def email_provider_config():
+    provider = runtime_setting("EMAIL_PROVIDER", EMAIL_PROVIDER).strip().lower()
+    resend_key = runtime_setting("RESEND_API_KEY", RESEND_API_KEY)
+    sendgrid_key = runtime_setting("SENDGRID_API_KEY", SENDGRID_API_KEY)
+    if not provider:
+        if resend_key:
+            provider = "resend"
+        elif sendgrid_key:
+            provider = "sendgrid"
+        else:
+            provider = "smtp"
+    return {
+        "provider": provider,
+        "resend_configured": bool(resend_key),
+        "sendgrid_configured": bool(sendgrid_key),
+        "resend_key": resend_key,
+        "sendgrid_key": sendgrid_key,
+        "from": runtime_setting("SMTP_FROM", SMTP_FROM).strip(),
+    }
+
+
+def email_provider_diagnostics():
+    config = email_provider_config()
+    return {
+        "provider": config["provider"],
+        "resend_configured": config["resend_configured"],
+        "sendgrid_configured": config["sendgrid_configured"],
+        "from": config["from"],
+        "smtp": smtp_diagnostics(),
+        "notes": "Set EMAIL_PROVIDER=resend with RESEND_API_KEY, or EMAIL_PROVIDER=sendgrid with SENDGRID_API_KEY, if Railway blocks outbound SMTP."
+    }
+
+
+def message_html_body(message):
+    for part in message.walk():
+        if part.get_content_type() == "text/html":
+            return part.get_content()
+    return None
+
+
+def message_text_body(message):
+    if not message.is_multipart():
+        return message.get_content()
+    for part in message.walk():
+        if part.get_content_type() == "text/plain":
+            return part.get_content()
+    return ""
+
+
+def post_json(url, payload, headers):
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json", **headers})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read().decode("utf-8", "replace")
+            return response.status, body
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", "replace")
+        raise RuntimeError(f"HTTP {error.code}: {body}")
+
+
+def deliver_resend_message(message, config):
+    payload = {
+        "from": config["from"],
+        "to": [message["To"]],
+        "subject": message["Subject"],
+        "text": message_text_body(message),
+    }
+    html_body = message_html_body(message)
+    if html_body:
+        payload["html"] = html_body
+    status, body = post_json("https://api.resend.com/emails", payload, {"Authorization": f"Bearer {config['resend_key']}"})
+    if status not in (200, 201, 202):
+        raise RuntimeError(f"Resend returned HTTP {status}: {body}")
+    return body
+
+
+def deliver_sendgrid_message(message, config):
+    from_name, from_email = parseaddr(config["from"])
+    content = [{"type": "text/plain", "value": message_text_body(message)}]
+    html_body = message_html_body(message)
+    if html_body:
+        content.append({"type": "text/html", "value": html_body})
+    payload = {
+        "personalizations": [{"to": [{"email": message["To"]}]}],
+        "from": {"email": from_email or config["from"], **({"name": from_name} if from_name else {})},
+        "subject": message["Subject"],
+        "content": content,
+    }
+    status, body = post_json("https://api.sendgrid.com/v3/mail/send", payload, {"Authorization": f"Bearer {config['sendgrid_key']}"})
+    if status not in (200, 202):
+        raise RuntimeError(f"SendGrid returned HTTP {status}: {body}")
+    return body
+
+
+def create_ipv4_socket(host, port, timeout):
+    last_error = None
+    for family, socktype, proto, _, address in socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM):
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(timeout)
+            sock.connect(address)
+            return sock
+        except OSError as error:
+            last_error = error
+            if sock:
+                sock.close()
+    if last_error:
+        raise last_error
+    raise OSError(f"No IPv4 SMTP address found for {host}:{port}")
+
+
+class IPv4SMTP(smtplib.SMTP):
+    def _get_socket(self, host, port, timeout):
+        if self.debuglevel > 0:
+            self._print_debug("connect: to", (host, port), self.source_address)
+        return create_ipv4_socket(host, port, timeout)
+
+
+class IPv4SMTPSSL(smtplib.SMTP_SSL):
+    def _get_socket(self, host, port, timeout):
+        if self.debuglevel > 0:
+            self._print_debug("connect: to", (host, port), self.source_address)
+        sock = create_ipv4_socket(host, port, timeout)
+        return self.context.wrap_socket(sock, server_hostname=self._host)
+
+
+def smtp_network_check(host=None, port=None):
+    config = smtp_config()
+    host = host or config["host"] or "smtp.gmail.com"
+    port = int(port or config["port"] or 587)
+
+    def resolve(family):
+        try:
+            rows = socket.getaddrinfo(host, port, family, socket.SOCK_STREAM)
+            return {
+                "ok": True,
+                "addresses": sorted({row[4][0] for row in rows}),
+                "error": None
+            }
+        except OSError as error:
+            return {"ok": False, "addresses": [], "error": repr(error)}
+
+    def connect_family(family):
+        started = time.time()
+        try:
+            rows = socket.getaddrinfo(host, port, family, socket.SOCK_STREAM)
+            last_error = None
+            for row_family, socktype, proto, _, address in rows:
+                sock = None
+                try:
+                    sock = socket.socket(row_family, socktype, proto)
+                    sock.settimeout(5)
+                    sock.connect(address)
+                    sock.close()
+                    return {"ok": True, "address": address[0], "elapsed_ms": int((time.time() - started) * 1000), "error": None}
+                except OSError as error:
+                    last_error = error
+                    if sock:
+                        sock.close()
+            return {"ok": False, "address": None, "elapsed_ms": int((time.time() - started) * 1000), "error": repr(last_error)}
+        except OSError as error:
+            return {"ok": False, "address": None, "elapsed_ms": int((time.time() - started) * 1000), "error": repr(error)}
+
+    starttls = {"ok": False, "error": None, "elapsed_ms": None}
+    started = time.time()
+    try:
+        with IPv4SMTP(host, port, timeout=10) as smtp:
+            code, greeting = smtp.ehlo()
+            if code >= 400:
+                raise RuntimeError(f"EHLO failed: {code} {greeting!r}")
+            code, response = smtp.starttls()
+            if code >= 400:
+                raise RuntimeError(f"STARTTLS failed: {code} {response!r}")
+            code, greeting = smtp.ehlo()
+            if code >= 400:
+                raise RuntimeError(f"EHLO after STARTTLS failed: {code} {greeting!r}")
+        starttls = {"ok": True, "error": None, "elapsed_ms": int((time.time() - started) * 1000)}
+    except Exception as error:
+        starttls = {"ok": False, "error": repr(error), "elapsed_ms": int((time.time() - started) * 1000)}
+
+    ipv4_connect = connect_family(socket.AF_INET)
+    ipv6_connect = connect_family(socket.AF_INET6)
+    conclusion = "unknown"
+    if not resolve(socket.AF_INET)["ok"] and not resolve(socket.AF_INET6)["ok"]:
+        conclusion = "dns_failed"
+    elif ipv4_connect["ok"] and starttls["ok"]:
+        conclusion = "smtp_587_reachable_starttls_ok"
+    elif ipv4_connect["ok"] and not starttls["ok"]:
+        conclusion = "smtp_reachable_starttls_failed"
+    elif not ipv4_connect["ok"] and ipv6_connect["ok"]:
+        conclusion = "ipv4_failed_ipv6_reachable"
+    elif not ipv4_connect["ok"] and not ipv6_connect["ok"]:
+        conclusion = "smtp_port_unreachable_or_blocked"
+
+    return {
+        "host": host,
+        "port": port,
+        "dns_ipv4": resolve(socket.AF_INET),
+        "dns_ipv6": resolve(socket.AF_INET6),
+        "tcp_ipv4": ipv4_connect,
+        "tcp_ipv6": ipv6_connect,
+        "starttls_ipv4": starttls,
+        "conclusion": conclusion,
+        "blocked_likely": conclusion == "smtp_port_unreachable_or_blocked",
     }
 
 
 def deliver_email_message(message):
+    provider = email_provider_config()
+    if provider["provider"] == "resend":
+        if not provider["resend_key"]:
+            raise RuntimeError("EMAIL_PROVIDER is resend but RESEND_API_KEY is not configured.")
+        return deliver_resend_message(message, provider)
+    if provider["provider"] == "sendgrid":
+        if not provider["sendgrid_key"]:
+            raise RuntimeError("EMAIL_PROVIDER is sendgrid but SENDGRID_API_KEY is not configured.")
+        return deliver_sendgrid_message(message, provider)
     config = smtp_config()
     if not config["host"]:
         raise RuntimeError("SMTP_HOST is not configured, so email is only stored as a local preview.")
     if config["port"] == 465:
-        with smtplib.SMTP_SSL(config["host"], config["port"], timeout=20) as smtp:
+        with IPv4SMTPSSL(config["host"], config["port"], timeout=20) as smtp:
             if config["user"]:
                 smtp.login(config["user"], config["password"])
             smtp.send_message(message)
     else:
-        with smtplib.SMTP(config["host"], config["port"], timeout=20) as smtp:
+        with IPv4SMTP(config["host"], config["port"], timeout=20) as smtp:
             smtp.ehlo()
             if config["port"] != 25:
                 smtp.starttls()
@@ -195,6 +419,7 @@ def deliver_email_message(message):
             if config["user"]:
                 smtp.login(config["user"], config["password"])
             smtp.send_message(message)
+    return "smtp"
 
 
 def send_auth_email(recipient, subject, body):
@@ -882,7 +1107,8 @@ def initialise():
             ("COMPANY_PHONE", "", 0), ("BUSINESS_ADDRESS", "", 0), ("PUBLIC_URL", PUBLIC_URL, 0),
             ("STRIPE_SECRET_KEY", "", 1), ("STRIPE_WEBHOOK_SECRET", "", 1),
             ("SMTP_HOST", "", 0), ("SMTP_PORT", "587", 0), ("SMTP_USER", "", 0),
-            ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("REVIEW_URL", "", 0),
+            ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("EMAIL_PROVIDER", "", 0),
+            ("RESEND_API_KEY", "", 1), ("SENDGRID_API_KEY", "", 1), ("REVIEW_URL", "", 0),
             ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1),
             ("AI_BUSINESS_HOURS", DEFAULT_BUSINESS_HOURS, 0), ("AI_SERVICE_AREAS", DEFAULT_SERVICE_AREAS, 0),
             ("AI_PRICING_JSON", json.dumps(DEFAULT_AI_PRICING), 0), ("AI_RESPONSES_JSON", json.dumps(DEFAULT_AI_RESPONSES), 0)
@@ -1061,6 +1287,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.admin_email_diagnostics()
+        if path == "/api/admin/smtp-network-diagnostics":
+            if not self.require_admin():
+                return
+            return self.send_json({"smtp_network": smtp_network_check("smtp.gmail.com", 587), "email_provider": email_provider_diagnostics()})
         if path == "/api/receptionist/conversations":
             return self.receptionist_conversations()
         if path.startswith("/api/receptionist/conversations/") and path.endswith("/messages"):
@@ -1565,8 +1795,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Setup authorization required."}, 401)
         try:
             data = self.read_json()
-            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","REVIEW_URL","ADMIN_EMAIL"}
-            secret_keys = {"STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_PASSWORD"}
+            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","EMAIL_PROVIDER","RESEND_API_KEY","SENDGRID_API_KEY","REVIEW_URL","ADMIN_EMAIL"}
+            secret_keys = {"STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_PASSWORD","RESEND_API_KEY","SENDGRID_API_KEY"}
             existing_admin_hash = runtime_setting("ADMIN_PASSWORD_HASH", "")
             admin_email = str(data.get("ADMIN_EMAIL") or runtime_setting("ADMIN_EMAIL", "")).strip().lower()
             admin_password = data.get("ADMIN_PASSWORD", "")
@@ -2357,6 +2587,8 @@ class Handler(BaseHTTPRequestHandler):
                 "database_path": selected_database["path"],
                 "write_database_path": str(DB),
                 "database_exists": selected_database["exists"],
+                "email_provider": email_provider_diagnostics(),
+                "smtp_network": smtp_network_check("smtp.gmail.com", 587),
                 "discovered_databases": discovered_databases,
                 "table_names": table_names,
                 "row_counts": row_counts,
@@ -2376,11 +2608,13 @@ class Handler(BaseHTTPRequestHandler):
                 FROM email_log ORDER BY id DESC LIMIT 20
             """).fetchall()]
         return self.send_json({
+            "email_provider": email_provider_diagnostics(),
             "smtp": smtp_diagnostics(),
+            "smtp_network": smtp_network_check("smtp.gmail.com", 587),
             "recent_email_log": recent,
             "required_railway_variables": ["SMTP_HOST", "SMTP_PORT", "SMTP_FROM"],
-            "optional_railway_variables": ["SMTP_USER", "SMTP_PASSWORD"],
-            "notes": "If status is Preview, SMTP_HOST is missing and no real email was sent. If status is Failed, check the error field and Railway logs."
+            "optional_railway_variables": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_PROVIDER", "RESEND_API_KEY", "SENDGRID_API_KEY"],
+            "notes": "If smtp_network.conclusion is smtp_port_unreachable_or_blocked, set EMAIL_PROVIDER=resend with RESEND_API_KEY or EMAIL_PROVIDER=sendgrid with SENDGRID_API_KEY."
         })
 
     def admin_email_test(self):
@@ -2392,9 +2626,11 @@ class Handler(BaseHTTPRequestHandler):
             subject = "Sparkles Cleaning Cambridge test email"
             body = "This is a test email from Sparkles Cleaning Cambridge. If you received it, SMTP is configured correctly."
             config = smtp_config()
+            provider = email_provider_config()
             if not config["host"]:
                 logger.warning(json.dumps({"email_test": "preview", "recipient": recipient, "missing": smtp_diagnostics()["missing"]}))
-                return self.send_json({"status": "Preview", "sent": False, "smtp": smtp_diagnostics(), "message": "SMTP_HOST is missing, so no real email was sent."}, 503)
+                if provider["provider"] == "smtp":
+                    return self.send_json({"status": "Preview", "sent": False, "email_provider": email_provider_diagnostics(), "smtp": smtp_diagnostics(), "message": "SMTP_HOST is missing, so no real email was sent."}, 503)
             message = EmailMessage()
             message["From"], message["To"], message["Subject"] = config["from"], recipient, subject
             message.set_content(body)
@@ -2405,12 +2641,12 @@ class Handler(BaseHTTPRequestHandler):
             ]), subtype="html")
             deliver_email_message(message)
             logger.info(json.dumps({"email_test": "sent", "recipient": recipient}))
-            return self.send_json({"status": "Sent", "sent": True, "recipient": recipient, "smtp": smtp_diagnostics()})
+            return self.send_json({"status": "Sent", "sent": True, "recipient": recipient, "email_provider": email_provider_diagnostics(), "smtp": smtp_diagnostics()})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
         except Exception as error:
             logger.error(json.dumps({"email_test": "failed", "error": str(error)}))
-            return self.send_json({"status": "Failed", "sent": False, "error": str(error), "smtp": smtp_diagnostics()}, 502)
+            return self.send_json({"status": "Failed", "sent": False, "error": str(error), "email_provider": email_provider_diagnostics(), "smtp": smtp_diagnostics()}, 502)
 
     def receptionist_conversations(self):
         if not self.require_admin():
