@@ -142,20 +142,70 @@ def public_url():
     return runtime_setting("PUBLIC_URL", PUBLIC_URL).rstrip("/")
 
 
+def smtp_config():
+    try:
+        port = int(runtime_setting("SMTP_PORT", str(SMTP_PORT)) or "587")
+    except ValueError:
+        port = 587
+    return {
+        "host": runtime_setting("SMTP_HOST", SMTP_HOST).strip(),
+        "port": port,
+        "user": runtime_setting("SMTP_USER", SMTP_USER).strip(),
+        "password": runtime_setting("SMTP_PASSWORD", SMTP_PASSWORD),
+        "from": runtime_setting("SMTP_FROM", SMTP_FROM).strip(),
+    }
+
+
+def smtp_diagnostics():
+    config = smtp_config()
+    missing = []
+    if not config["host"]:
+        missing.append("SMTP_HOST")
+    if not config["from"]:
+        missing.append("SMTP_FROM")
+    if config["user"] and not config["password"]:
+        missing.append("SMTP_PASSWORD")
+    return {
+        "configured": not missing and bool(config["host"]),
+        "missing": missing,
+        "host_present": bool(config["host"]),
+        "port": config["port"],
+        "user_present": bool(config["user"]),
+        "password_present": bool(config["password"]),
+        "from": config["from"],
+        "mode": "ssl" if config["port"] == 465 else "starttls",
+    }
+
+
+def deliver_email_message(message):
+    config = smtp_config()
+    if not config["host"]:
+        raise RuntimeError("SMTP_HOST is not configured, so email is only stored as a local preview.")
+    if config["port"] == 465:
+        with smtplib.SMTP_SSL(config["host"], config["port"], timeout=20) as smtp:
+            if config["user"]:
+                smtp.login(config["user"], config["password"])
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(config["host"], config["port"], timeout=20) as smtp:
+            smtp.ehlo()
+            if config["port"] != 25:
+                smtp.starttls()
+                smtp.ehlo()
+            if config["user"]:
+                smtp.login(config["user"], config["password"])
+            smtp.send_message(message)
+
+
 def send_auth_email(recipient, subject, body):
-    smtp_host = runtime_setting("SMTP_HOST", SMTP_HOST)
-    if not smtp_host:
+    config = smtp_config()
+    if not config["host"]:
         logger.info(json.dumps({"auth_email_preview": {"recipient": recipient, "subject": subject, "body": body}}))
         return "Preview"
     message = EmailMessage()
-    message["From"], message["To"], message["Subject"] = runtime_setting("SMTP_FROM", SMTP_FROM), recipient, subject
+    message["From"], message["To"], message["Subject"] = config["from"], recipient, subject
     message.set_content(body)
-    with smtplib.SMTP(smtp_host, int(runtime_setting("SMTP_PORT", str(SMTP_PORT))), timeout=20) as smtp:
-        smtp.starttls()
-        smtp_user = runtime_setting("SMTP_USER", SMTP_USER)
-        if smtp_user:
-            smtp.login(smtp_user, runtime_setting("SMTP_PASSWORD", SMTP_PASSWORD))
-        smtp.send_message(message)
+    deliver_email_message(message)
     return "Sent"
 
 
@@ -350,27 +400,27 @@ def record_payment(conn, booking_id, payment_type, amount, provider_id, status="
 
 def send_workflow_email(booking_id, recipient, subject, body, html_body=None):
     delivery_status, provider_id, error = "Preview", None, None
-    smtp_host = runtime_setting("SMTP_HOST", SMTP_HOST)
-    if smtp_host:
+    config = smtp_config()
+    if config["host"]:
         message = EmailMessage()
-        message["From"], message["To"], message["Subject"] = runtime_setting("SMTP_FROM", SMTP_FROM), recipient, subject
+        message["From"], message["To"], message["Subject"] = config["from"], recipient, subject
         message.set_content(body)
         if html_body:
             message.add_alternative(html_body, subtype="html")
         try:
-            with smtplib.SMTP(smtp_host, int(runtime_setting("SMTP_PORT", str(SMTP_PORT))), timeout=20) as smtp:
-                smtp.starttls()
-                smtp_user = runtime_setting("SMTP_USER", SMTP_USER)
-                if smtp_user:
-                    smtp.login(smtp_user, runtime_setting("SMTP_PASSWORD", SMTP_PASSWORD))
-                smtp.send_message(message)
+            deliver_email_message(message)
             delivery_status, provider_id = "Sent", message["Message-ID"] or uuid.uuid4().hex
         except Exception as exc:
             error = str(exc)
             delivery_status = "Failed"
+            logger.error(json.dumps({"email_delivery": "failed", "booking_id": booking_id, "recipient": recipient, "subject": subject, "error": error}))
+    else:
+        logger.warning(json.dumps({"email_delivery": "preview", "booking_id": booking_id, "recipient": recipient, "subject": subject, "missing": smtp_diagnostics()["missing"]}))
     with connect() as conn:
         conn.execute("INSERT INTO email_log(booking_id,recipient,subject,body,status,provider_id,error,created_at) VALUES (?,?,?,?,?,?,?,?)", (booking_id, recipient, subject, body, delivery_status, provider_id, error, datetime.now(timezone.utc).isoformat()))
     automation.timeline(booking_id, "Email prepared" if delivery_status == "Preview" else "Email sent", f"{subject} → {recipient} ({delivery_status})", "Warning" if delivery_status == "Preview" else "Info")
+    if delivery_status == "Sent":
+        logger.info(json.dumps({"email_delivery": "sent", "booking_id": booking_id, "recipient": recipient, "subject": subject}))
     if delivery_status == "Failed":
         raise RuntimeError(error)
 
@@ -1007,6 +1057,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.admin_diagnostics()
+        if path == "/api/admin/email-diagnostics":
+            if not self.require_admin():
+                return
+            return self.admin_email_diagnostics()
         if path == "/api/receptionist/conversations":
             return self.receptionist_conversations()
         if path.startswith("/api/receptionist/conversations/") and path.endswith("/messages"):
@@ -1205,6 +1259,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.login_admin()
         if path == "/api/admin/emergency-reset":
             return self.emergency_admin_reset()
+        if path == "/api/admin/email-test":
+            if not self.require_admin():
+                return
+            return self.admin_email_test()
         if path == "/api/cleaner/login":
             return self.login_cleaner()
         if path == "/api/customer/register":
@@ -2310,6 +2368,49 @@ class Handler(BaseHTTPRequestHandler):
                 "current_admin_email": session["email"] if session else None
             }
         return self.send_json(diagnostics)
+
+    def admin_email_diagnostics(self):
+        with connect() as conn:
+            recent = [dict(row) for row in conn.execute("""
+                SELECT id,booking_id,recipient,subject,status,error,created_at
+                FROM email_log ORDER BY id DESC LIMIT 20
+            """).fetchall()]
+        return self.send_json({
+            "smtp": smtp_diagnostics(),
+            "recent_email_log": recent,
+            "required_railway_variables": ["SMTP_HOST", "SMTP_PORT", "SMTP_FROM"],
+            "optional_railway_variables": ["SMTP_USER", "SMTP_PASSWORD"],
+            "notes": "If status is Preview, SMTP_HOST is missing and no real email was sent. If status is Failed, check the error field and Railway logs."
+        })
+
+    def admin_email_test(self):
+        try:
+            data = self.read_json()
+            recipient = (data.get("email") or runtime_setting("COMPANY_EMAIL", "") or runtime_setting("ADMIN_EMAIL", "")).strip()
+            if not recipient:
+                raise ValueError("Provide an email address for the test.")
+            subject = "Sparkles Cleaning Cambridge test email"
+            body = "This is a test email from Sparkles Cleaning Cambridge. If you received it, SMTP is configured correctly."
+            config = smtp_config()
+            if not config["host"]:
+                logger.warning(json.dumps({"email_test": "preview", "recipient": recipient, "missing": smtp_diagnostics()["missing"]}))
+                return self.send_json({"status": "Preview", "sent": False, "smtp": smtp_diagnostics(), "message": "SMTP_HOST is missing, so no real email was sent."}, 503)
+            message = EmailMessage()
+            message["From"], message["To"], message["Subject"] = config["from"], recipient, subject
+            message.set_content(body)
+            message.add_alternative(sparkles_email_html("Test email", "This is a test email from Sparkles Cleaning Cambridge. If you received it, SMTP is configured correctly.", [
+                ("Recipient", recipient),
+                ("SMTP host", config["host"]),
+                ("SMTP mode", "SSL" if config["port"] == 465 else "STARTTLS"),
+            ]), subtype="html")
+            deliver_email_message(message)
+            logger.info(json.dumps({"email_test": "sent", "recipient": recipient}))
+            return self.send_json({"status": "Sent", "sent": True, "recipient": recipient, "smtp": smtp_diagnostics()})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+        except Exception as error:
+            logger.error(json.dumps({"email_test": "failed", "error": str(error)}))
+            return self.send_json({"status": "Failed", "sent": False, "error": str(error), "smtp": smtp_diagnostics()}, 502)
 
     def receptionist_conversations(self):
         if not self.require_admin():
