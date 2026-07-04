@@ -16,6 +16,7 @@ import logging
 import sys
 import secrets
 import re
+import html as html_lib
 from email.message import EmailMessage
 import automation
 from datetime import datetime, timedelta, timezone
@@ -259,6 +260,7 @@ def create_booking_record(fields, photos=None, source="Website"):
     else:
         checkout_error = "Stripe is not configured. Add STRIPE_SECRET_KEY before taking online deposits."
         automation.timeline(booking_id, "Deposit checkout not created", checkout_error, "Warning")
+    safe_send_booking_confirmation_email(booking_id, False)
     automation.enqueue(booking_id, "send_quote")
     automation.enqueue(booking_id, "send_abandoned_followup", run_after=(datetime.now(timezone.utc) + timedelta(hours=24)).isoformat())
     return {
@@ -346,13 +348,15 @@ def record_payment(conn, booking_id, payment_type, amount, provider_id, status="
         conn.execute("UPDATE bookings SET payment_status='Paid in Full' WHERE id=?", (booking_id,))
 
 
-def send_workflow_email(booking_id, recipient, subject, body):
+def send_workflow_email(booking_id, recipient, subject, body, html_body=None):
     delivery_status, provider_id, error = "Preview", None, None
     smtp_host = runtime_setting("SMTP_HOST", SMTP_HOST)
     if smtp_host:
         message = EmailMessage()
         message["From"], message["To"], message["Subject"] = runtime_setting("SMTP_FROM", SMTP_FROM), recipient, subject
         message.set_content(body)
+        if html_body:
+            message.add_alternative(html_body, subtype="html")
         try:
             with smtplib.SMTP(smtp_host, int(runtime_setting("SMTP_PORT", str(SMTP_PORT))), timeout=20) as smtp:
                 smtp.starttls()
@@ -369,6 +373,136 @@ def send_workflow_email(booking_id, recipient, subject, body):
     automation.timeline(booking_id, "Email prepared" if delivery_status == "Preview" else "Email sent", f"{subject} → {recipient} ({delivery_status})", "Warning" if delivery_status == "Preview" else "Info")
     if delivery_status == "Failed":
         raise RuntimeError(error)
+
+
+def money_pounds(pence):
+    try:
+        return f"£{int(pence or 0) / 100:.2f}"
+    except (TypeError, ValueError):
+        return "£0.00"
+
+
+def email_contact_address():
+    return (
+        runtime_setting("COMPANY_EMAIL", "")
+        or runtime_setting("ADMIN_EMAIL", "")
+        or runtime_setting("SMTP_FROM", SMTP_FROM)
+    )
+
+
+def plain_rows(rows):
+    return "\n".join(f"{label}: {value}" for label, value in rows)
+
+
+def sparkles_email_html(title, intro, rows, cta=None):
+    company = html_lib.escape(runtime_setting("COMPANY_NAME", "Sparkles Cleaning Cambridge"))
+    title_html = html_lib.escape(title)
+    intro_html = html_lib.escape(intro).replace("\n", "<br>")
+    rows_html = "".join(
+        f"""<tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5edf7;color:#57708f;font-size:14px;">{html_lib.escape(str(label))}</td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5edf7;color:#102033;font-size:14px;font-weight:700;">{html_lib.escape(str(value or '—'))}</td>
+        </tr>"""
+        for label, value in rows
+    )
+    cta_html = ""
+    if cta and cta.get("url"):
+        cta_html = f"""<p style="margin:26px 0 10px;">
+            <a href="{html_lib.escape(cta['url'])}" style="background:#1463ff;color:#ffffff;text-decoration:none;padding:13px 18px;border-radius:999px;font-weight:700;display:inline-block;">{html_lib.escape(cta.get('label', 'View booking'))}</a>
+        </p>"""
+    return f"""<!doctype html>
+<html>
+  <body style="margin:0;background:#f4f8ff;font-family:Arial,Helvetica,sans-serif;color:#102033;">
+    <div style="max-width:640px;margin:0 auto;padding:24px;">
+      <div style="background:#1463ff;color:#ffffff;border-radius:22px 22px 0 0;padding:24px;">
+        <div style="font-size:14px;letter-spacing:.08em;text-transform:uppercase;opacity:.9;">{company}</div>
+        <h1 style="margin:8px 0 0;font-size:26px;line-height:1.2;">{title_html}</h1>
+      </div>
+      <div style="background:#ffffff;border-radius:0 0 22px 22px;padding:24px;box-shadow:0 12px 32px rgba(20,99,255,.12);">
+        <p style="font-size:16px;line-height:1.6;margin:0 0 18px;">{intro_html}</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:#fbfdff;border:1px solid #e5edf7;border-radius:16px;overflow:hidden;">
+          {rows_html}
+        </table>
+        {cta_html}
+        <p style="font-size:13px;color:#6b7f98;line-height:1.5;margin:24px 0 0;">Thank you for choosing {company}. If anything needs changing, please reply to this email.</p>
+      </div>
+    </div>
+  </body>
+</html>"""
+
+
+def booking_email_rows(booking, deposit_paid=None):
+    if deposit_paid is None:
+        payment_state = str(booking["payment_status"] or booking["status"] or "").strip().lower()
+        deposit_paid = payment_state in {"deposit paid", "paid in full"}
+    deposit_paid_amount = booking["deposit_amount"] if deposit_paid else 0
+    deposit_label = money_pounds(deposit_paid_amount)
+    if not deposit_paid:
+        deposit_label += " (not paid yet)"
+    return [
+        ("Booking reference", booking["reference"]),
+        ("Date", booking["preferred_date"]),
+        ("Time", booking["preferred_time"]),
+        ("Address", f"{booking['address']}, {booking['postcode']}"),
+        ("Service", booking["clean_type"]),
+        ("Deposit paid", deposit_label),
+        ("Balance due", money_pounds(booking["balance_amount"])),
+    ]
+
+
+def send_booking_confirmation_email(booking_id, deposit_paid=None, intro=None):
+    with connect() as conn:
+        booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+    if not booking:
+        return
+    deposit_is_paid = bool(deposit_paid) if deposit_paid is not None else None
+    rows = booking_email_rows(booking, deposit_is_paid)
+    subject = f"Booking confirmation – {booking['reference']}"
+    intro = intro or f"Hello {booking['name']}, thanks for booking with Sparkles Cleaning Cambridge. Here are your booking details."
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles Cleaning Cambridge"
+    html_body = sparkles_email_html("Booking confirmation", intro, rows)
+    send_workflow_email(booking_id, booking["email"], subject, body, html_body)
+    copy_to = email_contact_address()
+    if copy_to and copy_to.lower() != str(booking["email"]).lower():
+        send_workflow_email(booking_id, copy_to, f"Copy: {subject}", body, html_body)
+
+
+def send_cleaner_job_details_email(booking_id):
+    with connect() as conn:
+        row = conn.execute("""SELECT b.*, c.name cleaner_name, c.email cleaner_email, c.phone cleaner_phone
+            FROM bookings b JOIN cleaners c ON c.id=b.cleaner_id WHERE b.id=?""", (booking_id,)).fetchone()
+    if not row or not row["cleaner_email"]:
+        return
+    rows = [
+        ("Booking reference", row["reference"]),
+        ("Customer", row["name"]),
+        ("Customer phone", row["phone"]),
+        ("Customer email", row["email"]),
+        ("Service", row["clean_type"]),
+        ("Date", row["preferred_date"]),
+        ("Time", row["preferred_time"]),
+        ("Address", f"{row['address']}, {row['postcode']}"),
+        ("Notes", row["notes"] or "None"),
+    ]
+    intro = f"Hello {row['cleaner_name']}, you have been assigned a Sparkles Cleaning Cambridge job. Please review the details below."
+    subject = f"New assigned cleaning job – {row['reference']}"
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles Cleaning Cambridge"
+    html_body = sparkles_email_html("New assigned job", intro, rows)
+    send_workflow_email(booking_id, row["cleaner_email"], subject, body, html_body)
+
+
+def safe_send_booking_confirmation_email(booking_id, deposit_paid=None, intro=None):
+    try:
+        send_booking_confirmation_email(booking_id, deposit_paid, intro)
+    except RuntimeError as error:
+        automation.timeline(booking_id, "Booking confirmation email failed", str(error), "Warning")
+
+
+def safe_send_cleaner_job_details_email(booking_id):
+    try:
+        send_cleaner_job_details_email(booking_id)
+    except RuntimeError as error:
+        automation.timeline(booking_id, "Cleaner job email failed", str(error), "Warning")
 
 
 def suitable_cleaners(booking):
@@ -1180,6 +1314,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 checkout_error = "Stripe is not configured. Add STRIPE_SECRET_KEY before taking online deposits."
                 automation.timeline(booking_id, "Deposit checkout not created", checkout_error, "Warning")
+            safe_send_booking_confirmation_email(booking_id, False)
             automation.enqueue(booking_id, "send_quote")
             automation.enqueue(booking_id, "send_abandoned_followup", run_after=(datetime.now(timezone.utc) + timedelta(hours=24)).isoformat())
             result = {
@@ -2277,6 +2412,7 @@ class Handler(BaseHTTPRequestHandler):
                 record_payment(conn, booking_id, payment_type, amount, session.get("payment_intent") or session_id)
             automation.timeline(booking_id, "Payment received", f"{payment_type.title()} payment confirmed: £{amount/100:.2f}")
             if payment_type == "deposit":
+                safe_send_booking_confirmation_email(booking_id, True, f"Hello {booking['name']}, your Sparkles booking is confirmed and your deposit has been received. Here are the details.")
                 automation.enqueue(booking_id, "send_payment_confirmation")
                 automation.enqueue(booking_id, "offer_cleaners")
             else:
@@ -2313,6 +2449,7 @@ class Handler(BaseHTTPRequestHandler):
                     record_payment(conn, booking_id, payment_type, amount, session.get("payment_intent") or session["id"])
                 automation.timeline(booking_id, "Payment received", f"{payment_type.title()} payment confirmed by Stripe webhook")
                 if payment_type == "deposit":
+                    safe_send_booking_confirmation_email(booking_id, True)
                     automation.enqueue(booking_id, "send_payment_confirmation")
                     automation.enqueue(booking_id, "offer_cleaners")
                 else:
@@ -2394,6 +2531,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE cleaner_offers SET status='Accepted',responded_at=? WHERE id=?", (datetime.now(timezone.utc).isoformat(), offer["id"]))
                 conn.execute("UPDATE cleaner_offers SET status='Expired' WHERE booking_id=? AND id<>? AND status='Offered'", (booking["id"], offer["id"]))
             automation.timeline(booking["id"], "Cleaner accepted", f"{cleaner['name']} accepted and was assigned automatically")
+            safe_send_cleaner_job_details_email(booking["id"])
             automation.enqueue(booking["id"], "send_confirmations")
             schedule_reminder = dict(booking)
             schedule_reminder["id"] = booking["id"]
@@ -2427,6 +2565,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE bookings SET cleaner_id=?, status='Assigned', assigned_at=? WHERE id=?", (cleaner_id, datetime.now(timezone.utc).isoformat(), booking_id))
                 updated = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
             automation.timeline(booking_id, "Cleaner assigned", f"{cleaner['name']} assigned by admin")
+            safe_send_cleaner_job_details_email(booking_id)
             automation.enqueue(booking_id, "send_confirmations")
             schedule_booking_reminder(dict(updated))
             self.send_json({"ok": True, "status": "Assigned", "cleaner_name": cleaner["name"]})
