@@ -1269,6 +1269,12 @@ class Handler(BaseHTTPRequestHandler):
             values.pop("ADMIN_PASSWORD_HASH", None)
             values["ADMIN_CONFIGURED"] = admin_configured()
             values["SMTP_CONFIGURED"] = bool(runtime_setting("SMTP_HOST", SMTP_HOST))
+            provider = email_provider_config()
+            values["EMAIL_CONFIGURED"] = (
+                (provider["provider"] == "resend" and provider["resend_configured"]) or
+                (provider["provider"] == "sendgrid" and provider["sendgrid_configured"]) or
+                (provider["provider"] == "smtp" and bool(runtime_setting("SMTP_HOST", SMTP_HOST)))
+            )
             values["STRIPE_CONFIGURED"] = bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
             return self.send_json(values)
         if path == "/api/ai-office/settings":

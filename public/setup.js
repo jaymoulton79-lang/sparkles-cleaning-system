@@ -28,7 +28,7 @@ async function unlock(){
   form.elements.ADMIN_PASSWORD.required=!data.ADMIN_CONFIGURED;
   form.elements.ADMIN_PASSWORD.placeholder=data.ADMIN_CONFIGURED?'Leave blank to keep current password':'Create the first admin password';
   document.querySelector('#stripeReady').textContent=data.STRIPE_CONFIGURED?'✓':'○';
-  document.querySelector('#emailReady').textContent=data.SMTP_CONFIGURED?'✓':'○';
+  document.querySelector('#emailReady').textContent=data.EMAIL_CONFIGURED?'✓':'○';
 }
 
 function showStep(){

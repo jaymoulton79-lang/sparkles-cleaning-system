@@ -59,9 +59,9 @@ Completing a job creates and finalizes the remaining-balance Stripe invoice when
 
 The automation engine runs inside the server and is monitored at `http://localhost:8000/admin/automations`. It queues quote emails, cleaner offers, confirmations, 24-hour reminders, final invoices and review requests. Failed jobs retry with exponential backoff and can also be retried manually.
 
-Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `SMTP_FROM` to deliver real email. Without SMTP settings, emails are stored as local previews in the automation logs so the complete workflow can be tested safely.
+For Railway production email, use Resend: set `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, and `SMTP_FROM` to a verified Resend sender. Existing booking, owner, cleaner, reminder and invoice emails use the same delivery path.
 
-If the host blocks outbound SMTP, set `EMAIL_PROVIDER=resend` with `RESEND_API_KEY`, or `EMAIL_PROVIDER=sendgrid` with `SENDGRID_API_KEY`. Existing booking, owner, cleaner, reminder and invoice emails use the same delivery path.
+SMTP is still available for local/dev providers with `EMAIL_PROVIDER=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `SMTP_FROM`. Without real email settings, emails are stored as local previews in the automation logs so the complete workflow can be tested safely.
 
 ## AI Office Manager
 
