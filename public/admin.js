@@ -4,6 +4,7 @@ const stamp=v=>v?new Date(v).toLocaleString('en-GB',{dateStyle:'medium',timeStyl
 const money=p=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((p||0)/100);
 const gallery=photos=>photos?.length?`<div class="photos">${photos.map(p=>`<a href="${esc(p.url)}" target="_blank"><img src="${esc(p.url)}" alt="${esc(p.name)}"></a>`).join('')}</div>`:'None uploaded';
 const paymentStatusClass=status=>status==='Deposit Paid'||status==='Paid in Full'?'paid':status==='Deposit Due'?'due':'';
+const jsArg=v=>JSON.stringify(String(v??''));
 let bookings=[];
 
 async function load(){
@@ -31,7 +32,7 @@ async function load(){
           ${b.deposit_checkout_url&&b.payment_status==='Deposit Due'?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Open deposit checkout</a>`:''}
           ${b.balance_payment_url&&b.payment_status!=='Paid in Full'?`<br><a class="balance-link" href="${esc(b.balance_payment_url)}" target="_blank">Pay balance online</a>`:''}
         </td>
-        <td><button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button><br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick="archiveBooking(${b.id},this)">Archive test</button></td>
+        <td>${b._source==='stripe.checkout.sessions'?'<button class="assign-button" disabled>Recovered payment</button>':`<button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button>`}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick="archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})">Archive test</button></td>
       </tr>
       <tr class="detail-row" id="detail-${i}"><td class="detail" colspan="6"><div class="detail-grid">
         <div class="detail-block"><span>Reference</span><strong>${esc(b.reference)}</strong></div>
@@ -56,12 +57,16 @@ function paymentHistory(b){
 
 function toggle(i){document.querySelector(`#detail-${i}`).classList.toggle('open')}
 
-async function archiveBooking(id,button){
-  const booking=bookings.find(x=>x.id===id);
+async function archiveBooking(id,button,recoveredSessionId=''){
+  const booking=bookings.find(x=>String(x.id)===String(id)||String(x.recovered_session_id||'')===String(recoveredSessionId||''));
   if(!confirm(`Archive ${booking?.reference||'this booking'} as test data? It will be hidden from the normal admin list and excluded from dashboard metrics.`))return;
   button.disabled=true;button.textContent='Archiving…';
   try{
-    const r=await fetch(`/api/bookings/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({archive:true,is_test:true,status:booking?.status||'Cancelled',archive_reason:'Archived as test data from admin bookings'})});
+    const url=recoveredSessionId?`/api/recovered-bookings/${encodeURIComponent(recoveredSessionId)}`:`/api/bookings/${encodeURIComponent(id)}`;
+    const body=recoveredSessionId
+      ?{archive_reason:'Archived recovered Stripe test booking from admin bookings'}
+      :{archive:true,is_test:true,status:booking?.status||'Cancelled',archive_reason:'Archived as test data from admin bookings'};
+    const r=await fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const result=await r.json();if(!r.ok)throw new Error(result.error||'Could not archive booking.');
     await load();
   }catch(e){button.disabled=false;button.textContent='Archive test';alert(e.message)}

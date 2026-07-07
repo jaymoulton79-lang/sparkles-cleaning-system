@@ -593,9 +593,21 @@ def stripe_configured():
     return bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
 
 
+def archived_stripe_session_ids():
+    try:
+        with connect() as conn:
+            return {
+                row["session_id"]
+                for row in conn.execute("SELECT session_id FROM archived_stripe_sessions").fetchall()
+            }
+    except Exception:
+        return set()
+
+
 def recovered_stripe_booking_rows(days=45):
     if not stripe_configured():
         return []
+    archived_sessions = archived_stripe_session_ids()
     created_gte = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
     rows, starting_after = [], None
     while True:
@@ -606,6 +618,8 @@ def recovered_stripe_booking_rows(days=45):
         sessions = page.get("data", [])
         for session in sessions:
             if session.get("payment_status") != "paid":
+                continue
+            if session.get("id") in archived_sessions:
                 continue
             metadata = session.get("metadata") or {}
             customer = session.get("customer_details") or {}
@@ -643,6 +657,7 @@ def recovered_stripe_booking_rows(days=45):
                 "deposit_amount": deposit_amount,
                 "balance_amount": max(total_amount - deposit_amount, 0),
                 "deposit_checkout_session_id": session.get("id"),
+                "recovered_session_id": session.get("id"),
                 "deposit_checkout_url": "",
                 "balance_payment_url": "",
                 "accepted_at": None,
@@ -1209,6 +1224,13 @@ def initialise():
         for column, definition in cleanup_columns.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE bookings ADD COLUMN {column} {definition}")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS archived_stripe_sessions (
+                session_id TEXT PRIMARY KEY,
+                reason TEXT NOT NULL DEFAULT '',
+                archived_at TEXT NOT NULL
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cleaners (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1839,6 +1861,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": True})
             except (ValueError, TypeError, json.JSONDecodeError):
                 return self.send_json({"error": "Invalid workflow settings."}, 400)
+        if path.startswith("/api/recovered-bookings/"):
+            if not self.require_admin():
+                return
+            return self.archive_recovered_booking(path)
         if path.startswith("/api/bookings/"):
             if not self.require_admin():
                 return
@@ -2504,6 +2530,7 @@ class Handler(BaseHTTPRequestHandler):
             if not stripe_configured():
                 return [], None
             try:
+                archived_sessions = archived_stripe_session_ids()
                 start = datetime.fromisoformat(start_date).replace(tzinfo=business_tz)
                 created_gte = int(start.astimezone(timezone.utc).timestamp())
                 rows, starting_after = [], None
@@ -2515,6 +2542,8 @@ class Handler(BaseHTTPRequestHandler):
                     sessions = page.get("data", [])
                     for session in sessions:
                         if session.get("payment_status") != "paid":
+                            continue
+                        if session.get("id") in archived_sessions:
                             continue
                         amount = int(session.get("amount_total") or 0)
                         if amount <= 0:
@@ -2530,6 +2559,7 @@ class Handler(BaseHTTPRequestHandler):
                             "created_at": created.date().isoformat(),
                             "created_ts": int(session.get("created", 0)),
                             "source": "stripe.checkout.sessions",
+                            "checkout_session_id": session.get("id"),
                             "provider_payment_id": session.get("payment_intent") or session.get("id")
                         })
                     if not page.get("has_more") or not sessions:
@@ -3278,6 +3308,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "preferred_date": new_date, "preferred_time": new_time, "status": new_status, "is_test": is_test, "archived_at": archived_at, "archive_reason": archive_reason, "invoice_url": invoice_url, "invoice_error": invoice_error})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid schedule update."}, 400)
+
+    def archive_recovered_booking(self, path):
+        try:
+            session_id = unquote(path.split("/")[3]).strip()
+            if not session_id.startswith("cs_"):
+                raise ValueError("Invalid recovered payment.")
+            try:
+                data = self.read_json()
+            except ValueError:
+                data = {}
+            reason = str(data.get("archive_reason") or "Archived recovered Stripe test booking").strip()
+            with connect() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO archived_stripe_sessions(session_id,reason,archived_at)
+                    VALUES (?,?,?)
+                """, (session_id, reason, utcnow().isoformat()))
+            return self.send_json({"ok": True, "session_id": session_id, "archived_at": utcnow().isoformat()})
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError):
+            return self.send_json({"error": "Invalid recovered booking archive request."}, 400)
 
     def update_cleaner(self, path):
         try:
