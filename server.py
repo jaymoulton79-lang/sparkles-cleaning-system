@@ -926,8 +926,26 @@ def automation_handler(job):
         raise RuntimeError(f"Unknown automation step: {step}")
 
 
+def configured_database_path():
+    for key in ("SPARKLES_DB_PATH", "SQLITE_DB_PATH", "DATABASE_PATH"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return Path(value).expanduser()
+    database_url_path = sqlite_path_from_url(os.environ.get("DATABASE_URL", "").strip())
+    if database_url_path:
+        return database_url_path
+    for mount_key in ("RAILWAY_VOLUME_MOUNT_PATH", "VOLUME_MOUNT_PATH"):
+        mount = os.environ.get(mount_key, "").strip()
+        if mount:
+            return Path(mount).expanduser() / "sparkles.db"
+    selected, _profiles = dashboard_database_profile()
+    return Path(selected["path"]) if selected and selected.get("path") else DB
+
+
 def connect():
-    conn = sqlite3.connect(DB)
+    path = configured_database_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
 
