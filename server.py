@@ -927,19 +927,39 @@ def automation_handler(job):
 
 
 def configured_database_path():
+    selected, profiles = dashboard_database_profile()
+    selected_path = Path(selected["path"]) if selected and selected.get("path") else DB
+    selected_counts = selected.get("row_counts", {}) if selected else {}
+    selected_total = sum(int(selected_counts.get(table, 0) or 0) for table in ("bookings", "payments", "cleaners"))
+
+    configured_path = None
     for key in ("SPARKLES_DB_PATH", "SQLITE_DB_PATH", "DATABASE_PATH"):
         value = os.environ.get(key, "").strip()
         if value:
-            return Path(value).expanduser()
+            configured_path = Path(value).expanduser()
+            break
     database_url_path = sqlite_path_from_url(os.environ.get("DATABASE_URL", "").strip())
-    if database_url_path:
-        return database_url_path
-    for mount_key in ("RAILWAY_VOLUME_MOUNT_PATH", "VOLUME_MOUNT_PATH"):
-        mount = os.environ.get(mount_key, "").strip()
-        if mount:
-            return Path(mount).expanduser() / "sparkles.db"
-    selected, _profiles = dashboard_database_profile()
-    return Path(selected["path"]) if selected and selected.get("path") else DB
+    if configured_path is None and database_url_path:
+        configured_path = database_url_path
+    if configured_path is None:
+        for mount_key in ("RAILWAY_VOLUME_MOUNT_PATH", "VOLUME_MOUNT_PATH"):
+            mount = os.environ.get(mount_key, "").strip()
+            if mount:
+                configured_path = Path(mount).expanduser() / "sparkles.db"
+                break
+    if configured_path is None:
+        return selected_path
+
+    try:
+        configured_resolved = configured_path.resolve()
+    except OSError:
+        configured_resolved = configured_path.absolute()
+    configured_profile = next((profile for profile in profiles if profile.get("path") == str(configured_resolved)), None)
+    configured_counts = configured_profile.get("row_counts", {}) if configured_profile else {}
+    configured_total = sum(int(configured_counts.get(table, 0) or 0) for table in ("bookings", "payments", "cleaners"))
+    if selected_total > configured_total:
+        return selected_path
+    return configured_path
 
 
 def connect():
