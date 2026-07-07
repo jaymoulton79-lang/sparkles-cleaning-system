@@ -593,6 +593,80 @@ def stripe_configured():
     return bool(runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY))
 
 
+def recovered_stripe_booking_rows(days=45):
+    if not stripe_configured():
+        return []
+    created_gte = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+    rows, starting_after = [], None
+    while True:
+        params = {"limit": 100, "created[gte]": created_gte}
+        if starting_after:
+            params["starting_after"] = starting_after
+        page = stripe_get("checkout/sessions", params)
+        sessions = page.get("data", [])
+        for session in sessions:
+            if session.get("payment_status") != "paid":
+                continue
+            metadata = session.get("metadata") or {}
+            customer = session.get("customer_details") or {}
+            booking_id = metadata.get("booking_id") or session.get("client_reference_id") or session.get("id")
+            amount = int(session.get("amount_total") or 0)
+            created = datetime.fromtimestamp(int(session.get("created", 0)), timezone.utc)
+            payment_type = (metadata.get("payment_type") or "deposit").lower()
+            deposit_amount = amount if payment_type == "deposit" else 0
+            total_amount = deposit_amount * 4 if deposit_amount else amount
+            reference = metadata.get("booking_reference") or metadata.get("reference") or f"Stripe {str(booking_id)[-6:]}"
+            rows.append({
+                "id": booking_id,
+                "reference": reference,
+                "name": customer.get("name") or customer.get("email") or session.get("customer_email") or "Stripe customer",
+                "phone": customer.get("phone") or "",
+                "email": customer.get("email") or session.get("customer_email") or "",
+                "address": "Original booking details were not found in the active database.",
+                "postcode": "",
+                "clean_type": "Cleaning booking",
+                "bedrooms": 0,
+                "bathrooms": 0,
+                "preferred_date": created.date().isoformat(),
+                "preferred_time": "See Stripe payment",
+                "notes": "Recovered from successful Stripe payment because the bookings table is empty.",
+                "photos": [],
+                "before_photos": [],
+                "after_photos": [],
+                "status": "Deposit Paid",
+                "payment_status": "Deposit Paid",
+                "cleaner_id": None,
+                "cleaner_name": None,
+                "cleaner_phone": None,
+                "created_at": created.isoformat(),
+                "total_amount": total_amount,
+                "deposit_amount": deposit_amount,
+                "balance_amount": max(total_amount - deposit_amount, 0),
+                "deposit_checkout_session_id": session.get("id"),
+                "deposit_checkout_url": "",
+                "balance_payment_url": "",
+                "accepted_at": None,
+                "started_at": None,
+                "completed_at": None,
+                "cleaner_notes": "",
+                "payments": [{
+                    "id": session.get("id"),
+                    "booking_id": booking_id,
+                    "payment_type": payment_type,
+                    "amount": amount,
+                    "currency": "gbp",
+                    "status": "Paid",
+                    "provider_payment_id": session.get("payment_intent") or session.get("id"),
+                    "created_at": created.isoformat()
+                }],
+                "_source": "stripe.checkout.sessions"
+            })
+        if not page.get("has_more") or not sessions:
+            break
+        starting_after = sessions[-1]["id"]
+    return rows
+
+
 def create_checkout(booking, payment_type):
     amount = booking["deposit_amount"] if payment_type == "deposit" else booking["balance_amount"]
     label = "25% cleaning deposit" if payment_type == "deposit" else "Cleaning invoice balance"
@@ -1449,6 +1523,11 @@ class Handler(BaseHTTPRequestHandler):
                 with connect() as payment_conn:
                     item["payments"] = [dict(payment) for payment in payment_conn.execute("SELECT * FROM payments WHERE booking_id=? ORDER BY id DESC", (item["id"],)).fetchall()]
                 bookings.append(item)
+            if not bookings:
+                try:
+                    bookings = recovered_stripe_booking_rows()
+                except Exception as error:
+                    logger.error(json.dumps({"bookings_recovery": "failed", "error": str(error)}))
             return self.send_json(bookings)
         if path == "/api/cleaners":
             if not self.require_admin():
