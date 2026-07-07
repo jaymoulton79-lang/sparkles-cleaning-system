@@ -651,6 +651,47 @@ def record_invoice_payment(conn, invoice):
     return booking_id, amount
 
 
+def sync_paid_balance_invoices(conn):
+    if not stripe_configured():
+        return []
+    rows = conn.execute("""SELECT id,stripe_invoice_id FROM bookings
+        WHERE payment_status='Balance Due' AND stripe_invoice_id IS NOT NULL AND stripe_invoice_id<>''""").fetchall()
+    synced = []
+    for row in rows:
+        try:
+            invoice = stripe_request(f"invoices/{row['stripe_invoice_id']}", None, "GET")
+            if invoice.get("paid") or invoice.get("status") == "paid":
+                booking_id, amount = record_invoice_payment(conn, invoice)
+                automation.timeline(booking_id, "Final payment synced", f"Stripe invoice already paid: £{amount/100:.2f}")
+                automation.enqueue(booking_id, "send_review")
+                synced.append(booking_id)
+        except Exception as exc:
+            logger.error(json.dumps({"stripe_invoice_sync": "failed", "booking_id": row["id"], "invoice_id": row["stripe_invoice_id"], "error": str(exc)}))
+    return synced
+
+
+def sync_paid_balance_invoices(conn):
+    if not stripe_configured():
+        return []
+    rows = conn.execute("""SELECT id,stripe_invoice_id FROM bookings
+        WHERE payment_status='Balance Due' AND stripe_invoice_id IS NOT NULL AND stripe_invoice_id<>''""").fetchall()
+    synced = []
+    for row in rows:
+        try:
+            invoice = stripe_request(f"invoices/{row['stripe_invoice_id']}", None, "GET")
+            if invoice.get("paid") or invoice.get("status") == "paid":
+                booking_id, amount = record_invoice_payment(conn, invoice)
+                try:
+                    automation.timeline(booking_id, "Final payment synced", f"Stripe invoice already paid: £{amount/100:.2f}")
+                    automation.enqueue(booking_id, "send_review")
+                except Exception as automation_error:
+                    logger.error(json.dumps({"stripe_invoice_sync": "automation_failed", "booking_id": booking_id, "invoice_id": row["stripe_invoice_id"], "error": str(automation_error)}))
+                synced.append(booking_id)
+        except Exception as exc:
+            logger.error(json.dumps({"stripe_invoice_sync": "failed", "booking_id": row["id"], "invoice_id": row["stripe_invoice_id"], "error": str(exc)}))
+    return synced
+
+
 def send_workflow_email(booking_id, recipient, subject, body, html_body=None):
     delivery_status, provider_id, error = "Preview", None, None
     config = smtp_config()
@@ -1358,6 +1399,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             with connect() as conn:
+                sync_paid_balance_invoices(conn)
                 rows = conn.execute("""SELECT b.*, c.name AS cleaner_name, c.phone AS cleaner_phone
                     FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id ORDER BY b.id DESC""").fetchall()
             bookings = []
