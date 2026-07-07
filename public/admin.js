@@ -29,7 +29,7 @@ async function load(){
           <div class="payment-badge ${paymentStatusClass(b.payment_status)}">${esc(b.payment_status)}</div>
           ${b.cleaner_name?`<div class="assigned-to">${esc(b.cleaner_name)}</div>`:''}
           ${b.deposit_checkout_url&&b.payment_status==='Deposit Due'?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Open deposit checkout</a>`:''}
-          ${b.balance_payment_url?`<br><a class="balance-link" href="${esc(b.balance_payment_url)}" target="_blank">Pay balance online</a>`:''}
+          ${b.balance_payment_url&&b.payment_status!=='Paid in Full'?`<br><a class="balance-link" href="${esc(b.balance_payment_url)}" target="_blank">Pay balance online</a>`:''}
         </td>
         <td><button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button><br><button class="row-button" onclick="toggle(${i})">View details</button></td>
       </tr>
