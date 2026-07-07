@@ -1,1 +1,96 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Production setup | Sparkles</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/cleaner.css"><link rel="stylesheet" href="/setup.css"></head><body><div class="topbar"></div><header><nav class="nav"><a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Production setup</small></span></a><a class="admin-link" href="/admin">Back to admin</a></nav></header><main class="setup-page"><div class="setup-intro"><div class="eyebrow">Go-live configuration</div><h1>Let’s set up Sparkles.</h1><p>Connect payments and email, then add the company details customers will see.</p><div class="setup-progress"><span class="active" data-dot="0">1</span><i></i><span data-dot="1">2</span><i></i><span data-dot="2">3</span><i></i><span data-dot="3">4</span></div></div><section class="setup-card"><div id="setupAlert" class="alert"></div><div id="tokenGate" class="token-gate"><h2>Authorise setup</h2><p>Enter the <code>ADMIN_SETUP_TOKEN</code> configured on your server. Local development does not require one.</p><div class="field"><label for="setupToken">Setup token</label><input id="setupToken" type="password" autocomplete="off" placeholder="Production setup token"></div><button class="submit" id="unlock">Continue</button></div><form id="setupForm" hidden><section class="wizard-step active" data-step="0"><div class="step-kicker">Step 1 of 4</div><h2>Company details</h2><div class="grid"><div class="field full"><label for="COMPANY_NAME">Company name</label><input id="COMPANY_NAME" name="COMPANY_NAME" required></div><div class="field"><label for="COMPANY_EMAIL">Business email</label><input id="COMPANY_EMAIL" name="COMPANY_EMAIL" type="email"></div><div class="field"><label for="COMPANY_PHONE">Business phone</label><input id="COMPANY_PHONE" name="COMPANY_PHONE" type="tel"></div><div class="field full"><label for="BUSINESS_ADDRESS">Business address</label><textarea id="BUSINESS_ADDRESS" name="BUSINESS_ADDRESS"></textarea></div><div class="field"><label for="PUBLIC_URL">Public application URL</label><input id="PUBLIC_URL" name="PUBLIC_URL" type="url" placeholder="https://book.example.com"></div><div class="field"><label for="logo">Company logo</label><input id="logo" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP · maximum 1MB</small></div></div></section><section class="wizard-step" data-step="1"><div class="step-kicker">Step 2 of 4</div><h2>Stripe test mode</h2><p class="step-copy">Use test keys here. For production, environment variables or your cloud secret manager override stored values.</p><div class="field"><label for="STRIPE_SECRET_KEY">Secret key</label><input id="STRIPE_SECRET_KEY" name="STRIPE_SECRET_KEY" type="password" autocomplete="off" placeholder="sk_test_…"></div><div class="field"><label for="STRIPE_WEBHOOK_SECRET">Webhook signing secret</label><input id="STRIPE_WEBHOOK_SECRET" name="STRIPE_WEBHOOK_SECRET" type="password" autocomplete="off" placeholder="whsec_…"></div></section><section class="wizard-step" data-step="2"><div class="step-kicker">Step 3 of 4</div><h2>Email provider</h2><div class="grid"><div class="field"><label for="SMTP_HOST">SMTP host</label><input id="SMTP_HOST" name="SMTP_HOST" placeholder="smtp.example.com"></div><div class="field"><label for="SMTP_PORT">SMTP port</label><input id="SMTP_PORT" name="SMTP_PORT" type="number" value="587"></div><div class="field"><label for="SMTP_USER">SMTP username</label><input id="SMTP_USER" name="SMTP_USER" autocomplete="off"></div><div class="field"><label for="SMTP_PASSWORD">SMTP password</label><input id="SMTP_PASSWORD" name="SMTP_PASSWORD" type="password" autocomplete="new-password"></div><div class="field full"><label for="SMTP_FROM">From address</label><input id="SMTP_FROM" name="SMTP_FROM" placeholder="Sparkles Cleaning <bookings@example.com>"></div></div></section><section class="wizard-step" data-step="3"><div class="step-kicker">Step 4 of 4</div><h2>Review and finish</h2><div class="field"><label for="REVIEW_URL">Customer review URL</label><input id="REVIEW_URL" name="REVIEW_URL" type="url" placeholder="https://g.page/r/…/review"></div><div class="readiness"><div><span id="stripeReady">○</span><strong>Stripe configured</strong></div><div><span id="emailReady">○</span><strong>Email configured</strong></div><div><span>✓</span><strong>Database ready</strong></div><div><span>✓</span><strong>Automation engine ready</strong></div></div></section><div class="wizard-actions"><button type="button" class="secondary" id="back" hidden>Back</button><button type="button" class="submit next-button" id="next">Continue</button><button type="submit" class="submit next-button" id="save" hidden>Save production setup</button></div></form><div id="setupDone" class="success" hidden><div class="success-icon">✓</div><h2>Production setup saved</h2><p>Run through the production checklist before directing real customers here.</p><a class="pay-button" href="/admin/automations">Open automation monitor</a></div></section></main><script src="/setup.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Production setup | Sparkles</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/setup.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header>
+    <nav class="nav">
+      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Production setup</small></span></a>
+      <a class="admin-link" href="/admin">Back to admin</a>
+    </nav>
+  </header>
+  <main class="setup-page">
+    <div class="setup-intro">
+      <div class="eyebrow">Go-live configuration</div>
+      <h1>Let’s set up Sparkles.</h1>
+      <p>Connect payments and email, then add the company details customers will see.</p>
+      <div class="setup-progress"><span class="active" data-dot="0">1</span><i></i><span data-dot="1">2</span><i></i><span data-dot="2">3</span><i></i><span data-dot="3">4</span></div>
+    </div>
+    <section class="setup-card">
+      <div id="setupAlert" class="alert"></div>
+      <div id="tokenGate" class="token-gate">
+        <h2>Authorise setup</h2>
+        <p>Enter the <code>ADMIN_SETUP_TOKEN</code> configured on your server. Local development does not require one.</p>
+        <div class="field">
+          <label for="setupToken">Setup token</label>
+          <input id="setupToken" type="password" autocomplete="off" placeholder="Production setup token">
+        </div>
+        <button class="submit" id="unlock">Continue</button>
+      </div>
+      <form id="setupForm" hidden>
+        <section class="wizard-step active" data-step="0">
+          <div class="step-kicker">Step 1 of 4</div>
+          <h2>Company details</h2>
+          <div class="grid">
+            <div class="field full"><label for="COMPANY_NAME">Company name</label><input id="COMPANY_NAME" name="COMPANY_NAME" required></div>
+            <div class="field"><label for="COMPANY_EMAIL">Business email</label><input id="COMPANY_EMAIL" name="COMPANY_EMAIL" type="email"></div>
+            <div class="field"><label for="COMPANY_PHONE">Business phone</label><input id="COMPANY_PHONE" name="COMPANY_PHONE" type="tel"></div>
+            <div class="field full"><label for="BUSINESS_ADDRESS">Business address</label><textarea id="BUSINESS_ADDRESS" name="BUSINESS_ADDRESS"></textarea></div>
+            <div class="field"><label for="PUBLIC_URL">Public application URL</label><input id="PUBLIC_URL" name="PUBLIC_URL" type="url" placeholder="https://book.example.com"></div>
+            <div class="field"><label for="logo">Company logo</label><input id="logo" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG or WebP · maximum 1MB</small></div>
+          </div>
+        </section>
+        <section class="wizard-step" data-step="1">
+          <div class="step-kicker">Step 2 of 4</div>
+          <h2>Stripe test mode</h2>
+          <p class="step-copy">Use test keys here. For production, environment variables or your cloud secret manager override stored values.</p>
+          <div class="field"><label for="STRIPE_SECRET_KEY">Secret key</label><input id="STRIPE_SECRET_KEY" name="STRIPE_SECRET_KEY" type="password" autocomplete="off" placeholder="sk_test_…"></div>
+          <div class="field"><label for="STRIPE_WEBHOOK_SECRET">Webhook signing secret</label><input id="STRIPE_WEBHOOK_SECRET" name="STRIPE_WEBHOOK_SECRET" type="password" autocomplete="off" placeholder="whsec_…"></div>
+        </section>
+        <section class="wizard-step" data-step="2">
+          <div class="step-kicker">Step 3 of 4</div>
+          <h2>Email provider</h2>
+          <div class="grid">
+            <div class="field"><label for="SMTP_HOST">SMTP host</label><input id="SMTP_HOST" name="SMTP_HOST" placeholder="smtp.example.com"></div>
+            <div class="field"><label for="SMTP_PORT">SMTP port</label><input id="SMTP_PORT" name="SMTP_PORT" type="number" value="587"></div>
+            <div class="field"><label for="SMTP_USER">SMTP username</label><input id="SMTP_USER" name="SMTP_USER" autocomplete="off"></div>
+            <div class="field"><label for="SMTP_PASSWORD">SMTP password</label><input id="SMTP_PASSWORD" name="SMTP_PASSWORD" type="password" autocomplete="new-password"></div>
+            <div class="field full"><label for="EMAIL_FROM">Verified email sender</label><input id="EMAIL_FROM" name="EMAIL_FROM" placeholder="Sparkles Cleaning <bookings@sparkles-cleaning-cambridge.co.uk>"><small>Used by Resend. Must be verified in Resend.</small></div>
+            <div class="field full"><label for="SMTP_FROM">Legacy SMTP from address</label><input id="SMTP_FROM" name="SMTP_FROM" placeholder="Sparkles Cleaning <bookings@example.com>"></div>
+          </div>
+        </section>
+        <section class="wizard-step" data-step="3">
+          <div class="step-kicker">Step 4 of 4</div>
+          <h2>Review and finish</h2>
+          <div class="field"><label for="REVIEW_URL">Customer review URL</label><input id="REVIEW_URL" name="REVIEW_URL" type="url" placeholder="https://g.page/r/…/review"></div>
+          <div class="readiness">
+            <div><span id="stripeReady">○</span><strong>Stripe configured</strong></div>
+            <div><span id="emailReady">○</span><strong>Email configured</strong></div>
+            <div><span>✓</span><strong>Database ready</strong></div>
+            <div><span>✓</span><strong>Automation engine ready</strong></div>
+          </div>
+        </section>
+        <div class="wizard-actions">
+          <button type="button" class="secondary" id="back" hidden>Back</button>
+          <button type="button" class="submit next-button" id="next">Continue</button>
+          <button type="submit" class="submit next-button" id="save" hidden>Save production setup</button>
+        </div>
+      </form>
+      <div id="setupDone" class="success" hidden>
+        <div class="success-icon">✓</div>
+        <h2>Production setup saved</h2>
+        <p>Run through the production checklist before directing real customers here.</p>
+        <a class="pay-button" href="/admin/automations">Open automation monitor</a>
+      </div>
+    </section>
+  </main>
+  <script src="/setup.js"></script>
+</body>
+</html>

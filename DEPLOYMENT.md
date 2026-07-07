@@ -33,7 +33,7 @@ Route the public hostname to port 8000 through Caddy, Nginx, Traefik or the clou
 https://YOUR_DOMAIN/api/stripe/webhook
 ```
 
-Subscribe to `checkout.session.completed` and `invoice.paid`, then set the resulting signing secret.
+Subscribe to `checkout.session.completed`, `invoice.paid` and `invoice.payment_succeeded`, then set the resulting signing secret. The invoice events are required for final balance payments to move bookings from `Balance Due` to `Paid in Full`.
 
 ## 4. Cloud deployment
 

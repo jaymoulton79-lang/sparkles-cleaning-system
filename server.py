@@ -44,6 +44,7 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
 EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "").strip().lower()
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
@@ -147,6 +148,14 @@ def public_url():
     return runtime_setting("PUBLIC_URL", PUBLIC_URL).rstrip("/")
 
 
+def email_from_address():
+    return (
+        runtime_setting("EMAIL_FROM", EMAIL_FROM)
+        or runtime_setting("SMTP_FROM", SMTP_FROM)
+        or "Sparkles Cleaning <bookings@sparkles.local>"
+    ).strip()
+
+
 def smtp_config():
     try:
         port = int(runtime_setting("SMTP_PORT", str(SMTP_PORT)) or "587")
@@ -157,7 +166,7 @@ def smtp_config():
         "port": port,
         "user": runtime_setting("SMTP_USER", SMTP_USER).strip(),
         "password": runtime_setting("SMTP_PASSWORD", SMTP_PASSWORD),
-        "from": runtime_setting("SMTP_FROM", SMTP_FROM).strip(),
+        "from": email_from_address(),
     }
 
 
@@ -200,7 +209,7 @@ def email_provider_config():
         "sendgrid_configured": bool(sendgrid_key),
         "resend_key": resend_key,
         "sendgrid_key": sendgrid_key,
-        "from": runtime_setting("SMTP_FROM", SMTP_FROM).strip(),
+        "from": email_from_address(),
     }
 
 
@@ -623,6 +632,25 @@ def record_payment(conn, booking_id, payment_type, amount, provider_id, status="
         conn.execute("UPDATE bookings SET payment_status='Paid in Full' WHERE id=?", (booking_id,))
 
 
+def record_invoice_payment(conn, invoice):
+    booking_id = int(invoice.get("metadata", {}).get("booking_id") or 0)
+    invoice_id = invoice.get("id")
+    if not booking_id and invoice_id:
+        booking = conn.execute("SELECT id FROM bookings WHERE stripe_invoice_id=?", (invoice_id,)).fetchone()
+        booking_id = int(booking["id"]) if booking else 0
+    if not booking_id:
+        raise ValueError("Booking not found for this Stripe invoice.")
+    booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+    if not booking:
+        raise ValueError("Booking not found for this Stripe invoice.")
+    amount = int(invoice.get("amount_paid") or booking["balance_amount"] or 0)
+    provider_id = invoice.get("payment_intent") or invoice_id
+    record_payment(conn, booking_id, "balance", amount, provider_id)
+    if invoice_id:
+        conn.execute("UPDATE bookings SET stripe_invoice_id=COALESCE(stripe_invoice_id, ?), balance_payment_url=COALESCE(balance_payment_url, ?) WHERE id=?", (invoice_id, invoice.get("hosted_invoice_url"), booking_id))
+    return booking_id, amount
+
+
 def send_workflow_email(booking_id, recipient, subject, body, html_body=None):
     delivery_status, provider_id, error = "Preview", None, None
     config = smtp_config()
@@ -847,6 +875,9 @@ def automation_handler(job):
         send_workflow_email(booking_id, booking["email"], f"Final invoice – {booking['reference']}", f"Thank you for choosing Sparkles. Your remaining balance is £{booking['balance_amount']/100:.2f}.\n\nPay securely: {url}")
         automation.timeline(booking_id, "Final invoice sent", f"Balance £{booking['balance_amount']/100:.2f}")
     elif step == "send_review":
+        if booking["payment_status"] != "Paid in Full":
+            automation.timeline(booking_id, "Review deferred", f"Payment status is {booking['payment_status']}; waiting for final payment", "Warning")
+            raise RuntimeError("Final payment has not been confirmed yet.")
         review_url = runtime_setting("REVIEW_URL", "") or f"{runtime_setting('PUBLIC_URL', PUBLIC_URL).rstrip('/')}/review-thanks?booking={booking_id}"
         send_workflow_email(booking_id, booking["email"], "How did we do?", f"Hello {booking['name']},\n\nThank you for your payment. We would love your feedback: {review_url}")
         automation.timeline(booking_id, "Review requested", "Review request sent after final payment")
@@ -1107,7 +1138,7 @@ def initialise():
             ("COMPANY_PHONE", "", 0), ("BUSINESS_ADDRESS", "", 0), ("PUBLIC_URL", PUBLIC_URL, 0),
             ("STRIPE_SECRET_KEY", "", 1), ("STRIPE_WEBHOOK_SECRET", "", 1),
             ("SMTP_HOST", "", 0), ("SMTP_PORT", "587", 0), ("SMTP_USER", "", 0),
-            ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("EMAIL_PROVIDER", "", 0),
+            ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("EMAIL_FROM", EMAIL_FROM, 0), ("EMAIL_PROVIDER", "", 0),
             ("RESEND_API_KEY", "", 1), ("SENDGRID_API_KEY", "", 1), ("REVIEW_URL", "", 0),
             ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1),
             ("AI_BUSINESS_HOURS", DEFAULT_BUSINESS_HOURS, 0), ("AI_SERVICE_AREAS", DEFAULT_SERVICE_AREAS, 0),
@@ -1801,7 +1832,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Setup authorization required."}, 401)
         try:
             data = self.read_json()
-            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","EMAIL_PROVIDER","RESEND_API_KEY","SENDGRID_API_KEY","REVIEW_URL","ADMIN_EMAIL"}
+            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","EMAIL_FROM","EMAIL_PROVIDER","RESEND_API_KEY","SENDGRID_API_KEY","REVIEW_URL","ADMIN_EMAIL"}
             secret_keys = {"STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_PASSWORD","RESEND_API_KEY","SENDGRID_API_KEY"}
             existing_admin_hash = runtime_setting("ADMIN_PASSWORD_HASH", "")
             admin_email = str(data.get("ADMIN_EMAIL") or runtime_setting("ADMIN_EMAIL", "")).strip().lower()
@@ -2618,8 +2649,8 @@ class Handler(BaseHTTPRequestHandler):
             "smtp": smtp_diagnostics(),
             "smtp_network": smtp_network_check("smtp.gmail.com", 587),
             "recent_email_log": recent,
-            "required_railway_variables": ["SMTP_HOST", "SMTP_PORT", "SMTP_FROM"],
-            "optional_railway_variables": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_PROVIDER", "RESEND_API_KEY", "SENDGRID_API_KEY"],
+            "required_railway_variables": ["EMAIL_FROM", "SMTP_FROM"],
+            "optional_railway_variables": ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_PROVIDER", "RESEND_API_KEY", "SENDGRID_API_KEY"],
             "notes": "If smtp_network.conclusion is smtp_port_unreachable_or_blocked, set EMAIL_PROVIDER=resend with RESEND_API_KEY or EMAIL_PROVIDER=sendgrid with SENDGRID_API_KEY."
         })
 
@@ -2797,17 +2828,12 @@ class Handler(BaseHTTPRequestHandler):
                     automation.enqueue(booking_id, "offer_cleaners")
                 else:
                     automation.enqueue(booking_id, "send_review")
-            elif event.get("type") == "invoice.paid":
+            elif event.get("type") in ("invoice.paid", "invoice.payment_succeeded"):
                 invoice = event["data"]["object"]
-                booking_id = int(invoice.get("metadata", {}).get("booking_id", 0))
-                if booking_id:
-                    with connect() as conn:
-                        booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
-                        if not booking:
-                            return self.send_json({"error": "Booking not found for this Stripe invoice."}, 404)
-                        record_payment(conn, booking_id, "balance", booking["balance_amount"], invoice["id"])
-                    automation.timeline(booking_id, "Final payment received", "Stripe invoice paid in full")
-                    automation.enqueue(booking_id, "send_review")
+                with connect() as conn:
+                    booking_id, amount = record_invoice_payment(conn, invoice)
+                automation.timeline(booking_id, "Final payment received", f"Stripe invoice paid in full: Â£{amount/100:.2f}")
+                automation.enqueue(booking_id, "send_review")
             self.send_json({"received": True})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, 400)
@@ -2957,7 +2983,6 @@ class Handler(BaseHTTPRequestHandler):
             automation.timeline(booking_id, event, detail)
             if action == "complete":
                 automation.enqueue(booking_id, "send_final_invoice")
-                automation.enqueue(booking_id, "send_review")
             return self.send_json({"ok": True, "status": status})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error) or "Invalid cleaner job action."}, 400)
@@ -3034,7 +3059,6 @@ class Handler(BaseHTTPRequestHandler):
             if new_status == "Completed" and booking["status"] != "Completed":
                 automation.timeline(booking_id, "Job completed", "Booking marked complete from the calendar")
                 automation.enqueue(booking_id, "send_final_invoice")
-                automation.enqueue(booking_id, "send_review")
             self.send_json({"ok": True, "preferred_date": new_date, "preferred_time": new_time, "status": new_status, "invoice_url": invoice_url, "invoice_error": invoice_error})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid schedule update."}, 400)
