@@ -734,7 +734,11 @@ def record_invoice_payment(conn, invoice):
     booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
     if not booking:
         raise ValueError("Booking not found for this Stripe invoice.")
-    amount = int(invoice.get("amount_paid") or booking["balance_amount"] or 0)
+    amount = int(invoice.get("amount_paid") or 0)
+    if amount <= 0:
+        raise ValueError("Stripe invoice has not recorded a paid balance amount yet.")
+    if amount < int(booking["balance_amount"] or 0):
+        raise ValueError("Stripe invoice paid amount is less than the booking balance.")
     provider_id = invoice.get("payment_intent") or invoice_id
     record_payment(conn, booking_id, "balance", amount, provider_id)
     if invoice_id:
