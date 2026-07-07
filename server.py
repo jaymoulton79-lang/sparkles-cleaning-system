@@ -1200,6 +1200,15 @@ def initialise():
         for column, definition in cleaner_workflow_columns.items():
             if column not in columns:
                 conn.execute(f"ALTER TABLE bookings ADD COLUMN {column} {definition}")
+        cleanup_columns = {
+            "is_test": "INTEGER NOT NULL DEFAULT 0",
+            "archived_at": "TEXT",
+            "archive_reason": "TEXT NOT NULL DEFAULT ''"
+        }
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(bookings)")}
+        for column, definition in cleanup_columns.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE bookings ADD COLUMN {column} {definition}")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cleaners (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1513,7 +1522,9 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 sync_paid_balance_invoices(conn)
                 rows = conn.execute("""SELECT b.*, c.name AS cleaner_name, c.phone AS cleaner_phone
-                    FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id ORDER BY b.id DESC""").fetchall()
+                    FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
+                    WHERE b.archived_at IS NULL
+                    ORDER BY b.id DESC""").fetchall()
             bookings = []
             for row in rows:
                 item = dict(row)
@@ -1832,6 +1843,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.update_booking(path)
+        if path.startswith("/api/cleaners/"):
+            if not self.require_admin():
+                return
+            return self.update_cleaner(path)
         self.send_error(404)
 
     def read_json(self):
@@ -2435,6 +2450,12 @@ class Handler(BaseHTTPRequestHandler):
         def is_converted_booking(booking):
             return normalise(get_value(booking, "payment_status", "stripe_status", "deposit_status", "payment_state")) in converted_booking_statuses
 
+        def truthy_flag(value):
+            return normalise(value) in {"1", "true", "yes", "y", "on", "test", "archived"}
+
+        def is_excluded_booking(booking):
+            return bool(get_value(booking, "archived_at", "archived", "deleted_at", default=None)) or truthy_flag(get_value(booking, "is_test", "test", "exclude_from_dashboard", default=0))
+
         def successful_payment_rows(bookings, payments):
             rows = []
             paid_types_by_booking = {}
@@ -2615,10 +2636,20 @@ class Handler(BaseHTTPRequestHandler):
             payment_table = choose_table(table_meta, "payments", "payments")
             cleaner_table = choose_table(table_meta, "cleaners", "cleaners")
             conversation_table = choose_table(table_meta, "ai_conversations", "conversations")
-            bookings = read_table(conn, booking_table)
+            raw_bookings = read_table(conn, booking_table)
             payments = read_table(conn, payment_table)
             cleaners = read_table(conn, cleaner_table)
             conversations = read_table(conn, conversation_table)
+            excluded_booking_identities = {
+                str(booking_identity(booking))
+                for booking in raw_bookings
+                if is_excluded_booking(booking) and booking_identity(booking) not in (None, "")
+            }
+            bookings = [booking for booking in raw_bookings if not is_excluded_booking(booking)]
+            payments = [
+                payment for payment in payments
+                if str(get_value(payment, "booking_id", "booking", "booking_ref", "booking_reference", default="")) not in excluded_booking_identities
+            ]
             latest_ai_senders = {}
             if conversation_table == "ai_conversations" and "ai_messages" in table_names:
                 latest_ai_senders = {
@@ -2632,6 +2663,10 @@ class Handler(BaseHTTPRequestHandler):
                 }
             stored_payment_rows = successful_payment_rows(bookings, payments)
             stripe_payment_rows, stripe_payment_error = stripe_checkout_payment_rows(month_start_s)
+            stripe_payment_rows = [
+                payment for payment in stripe_payment_rows
+                if str(payment_booking_identity(payment)) not in excluded_booking_identities
+            ]
             payment_rows = stripe_payment_rows if stripe_payment_rows else stored_payment_rows
             if not bookings and stripe_payment_rows:
                 bookings = stripe_booking_rows(stripe_payment_rows)
@@ -2696,7 +2731,7 @@ class Handler(BaseHTTPRequestHandler):
             if booking_table == "bookings" and cleaner_table == "cleaners":
                 upcoming_rows = [dict(row) for row in conn.execute("""SELECT b.id,b.reference,b.name,b.clean_type,b.preferred_date,b.preferred_time,b.status,c.name cleaner_name
                     FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
-                    WHERE b.preferred_date IN (?,?)
+                    WHERE b.preferred_date IN (?,?) AND COALESCE(b.is_test,0)=0 AND b.archived_at IS NULL
                     ORDER BY b.preferred_date,b.preferred_time LIMIT 10""", (today_s, tomorrow_s)).fetchall()]
             database_info = {
                 "path": selected_database["path"],
@@ -2713,6 +2748,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
                 "table_counts": {table["name"]: table["row_count"] for table in table_meta} | {
                     "dashboard_bookings_used": len(bookings),
+                    "dashboard_bookings_excluded": len(raw_bookings) - len(bookings),
                     "dashboard_payments_used": len(payments),
                     "dashboard_cleaners_used": len(cleaners),
                     "dashboard_ai_conversations_used": len(conversations),
@@ -3202,13 +3238,29 @@ class Handler(BaseHTTPRequestHandler):
                 new_date = data.get("preferred_date", booking["preferred_date"])
                 new_time = data.get("preferred_time", booking["preferred_time"])
                 new_status = data.get("status", booking["status"])
+                is_test = 1 if data.get("is_test", booking["is_test"] if "is_test" in booking.keys() else 0) else 0
+                archive_requested = bool(data.get("archive"))
+                unarchive_requested = bool(data.get("unarchive"))
+                archive_reason = str(data.get("archive_reason", "")).strip()
                 datetime.fromisoformat(new_date)
                 if new_status not in allowed_statuses:
                     raise ValueError("Invalid booking status.")
                 if booking["cleaner_id"] and cleaner_has_conflict(conn, booking["cleaner_id"], new_date, new_time, booking_id):
                     cleaner = conn.execute("SELECT name FROM cleaners WHERE id=?", (booking["cleaner_id"],)).fetchone()
                     return self.send_json({"error": f"{cleaner['name']} is already booked at that time."}, 409)
-                conn.execute("UPDATE bookings SET preferred_date=?, preferred_time=?, status=? WHERE id=?", (new_date, new_time, new_status, booking_id))
+                archived_at = booking["archived_at"] if "archived_at" in booking.keys() else None
+                if archive_requested:
+                    archived_at = utcnow().isoformat()
+                    if not archive_reason:
+                        archive_reason = "Archived from admin cleanup"
+                    is_test = 1
+                elif unarchive_requested:
+                    archived_at = None
+                    archive_reason = ""
+                else:
+                    archive_reason = booking["archive_reason"] if "archive_reason" in booking.keys() else archive_reason
+                conn.execute("""UPDATE bookings SET preferred_date=?, preferred_time=?, status=?, is_test=?, archived_at=?, archive_reason=?
+                    WHERE id=?""", (new_date, new_time, new_status, is_test, archived_at, archive_reason, booking_id))
                 if new_status == "Completed" and booking["status"] != "Completed":
                     try:
                         refreshed = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
@@ -3219,9 +3271,29 @@ class Handler(BaseHTTPRequestHandler):
             if new_status == "Completed" and booking["status"] != "Completed":
                 automation.timeline(booking_id, "Job completed", "Booking marked complete from the calendar")
                 automation.enqueue(booking_id, "send_final_invoice")
-            self.send_json({"ok": True, "preferred_date": new_date, "preferred_time": new_time, "status": new_status, "invoice_url": invoice_url, "invoice_error": invoice_error})
+            if archive_requested:
+                automation.timeline(booking_id, "Booking archived", archive_reason or "Archived from admin cleanup")
+            elif unarchive_requested:
+                automation.timeline(booking_id, "Booking restored", "Booking restored to active admin lists")
+            self.send_json({"ok": True, "preferred_date": new_date, "preferred_time": new_time, "status": new_status, "is_test": is_test, "archived_at": archived_at, "archive_reason": archive_reason, "invoice_url": invoice_url, "invoice_error": invoice_error})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid schedule update."}, 400)
+
+    def update_cleaner(self, path):
+        try:
+            cleaner_id = int(path.split("/")[3])
+            data = self.read_json()
+            if "active" not in data:
+                raise ValueError("Missing cleaner active status.")
+            active = 1 if data.get("active") else 0
+            with connect() as conn:
+                cleaner = conn.execute("SELECT * FROM cleaners WHERE id=?", (cleaner_id,)).fetchone()
+                if not cleaner:
+                    return self.send_json({"error": "Cleaner not found."}, 404)
+                conn.execute("UPDATE cleaners SET active=? WHERE id=?", (active, cleaner_id))
+            return self.send_json({"ok": True, "id": cleaner_id, "active": active})
+        except (ValueError, TypeError, json.JSONDecodeError):
+            self.send_json({"error": "Invalid cleaner update."}, 400)
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ async function load(){
           ${b.deposit_checkout_url&&b.payment_status==='Deposit Due'?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Open deposit checkout</a>`:''}
           ${b.balance_payment_url&&b.payment_status!=='Paid in Full'?`<br><a class="balance-link" href="${esc(b.balance_payment_url)}" target="_blank">Pay balance online</a>`:''}
         </td>
-        <td><button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button><br><button class="row-button" onclick="toggle(${i})">View details</button></td>
+        <td><button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button><br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick="archiveBooking(${b.id},this)">Archive test</button></td>
       </tr>
       <tr class="detail-row" id="detail-${i}"><td class="detail" colspan="6"><div class="detail-grid">
         <div class="detail-block"><span>Reference</span><strong>${esc(b.reference)}</strong></div>
@@ -55,6 +55,17 @@ function paymentHistory(b){
 }
 
 function toggle(i){document.querySelector(`#detail-${i}`).classList.toggle('open')}
+
+async function archiveBooking(id,button){
+  const booking=bookings.find(x=>x.id===id);
+  if(!confirm(`Archive ${booking?.reference||'this booking'} as test data? It will be hidden from the normal admin list and excluded from dashboard metrics.`))return;
+  button.disabled=true;button.textContent='Archiving…';
+  try{
+    const r=await fetch(`/api/bookings/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({archive:true,is_test:true,status:booking?.status||'Cancelled',archive_reason:'Archived as test data from admin bookings'})});
+    const result=await r.json();if(!r.ok)throw new Error(result.error||'Could not archive booking.');
+    await load();
+  }catch(e){button.disabled=false;button.textContent='Archive test';alert(e.message)}
+}
 
 async function openAssign(id){
   const b=bookings.find(x=>x.id===id);const root=document.querySelector('#modalRoot');
