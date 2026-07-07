@@ -32,7 +32,7 @@ async function load(){
           ${b.deposit_checkout_url&&b.payment_status==='Deposit Due'?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Open deposit checkout</a>`:''}
           ${b.balance_payment_url&&b.payment_status!=='Paid in Full'?`<br><a class="balance-link" href="${esc(b.balance_payment_url)}" target="_blank">Pay balance online</a>`:''}
         </td>
-        <td>${b._source==='stripe.checkout.sessions'?'<button class="assign-button" disabled>Recovered payment</button>':`<button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button>`}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick="archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})">Archive test</button></td>
+        <td>${b._source==='stripe.checkout.sessions'?'<button class="assign-button" disabled>Recovered payment</button>':`<button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button>`}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick='archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})'>Archive test</button></td>
       </tr>
       <tr class="detail-row" id="detail-${i}"><td class="detail" colspan="6"><div class="detail-grid">
         <div class="detail-block"><span>Reference</span><strong>${esc(b.reference)}</strong></div>
