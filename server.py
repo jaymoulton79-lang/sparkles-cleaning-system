@@ -2724,7 +2724,11 @@ class Handler(BaseHTTPRequestHandler):
                 table_meta.append({"name": table_name, "columns": columns, "row_count": count})
             booking_table = choose_table(table_meta, "bookings", "bookings")
             payment_table = choose_table(table_meta, "payments", "payments")
-            cleaner_table = choose_table(table_meta, "cleaners", "cleaners")
+            # Active cleaner accounts must come from the real cleaners table only.
+            # Do not use the generic table picker here: tables such as sessions can
+            # contain role/email columns and look "cleaner-like", which causes login
+            # sessions to be counted as active cleaner accounts.
+            cleaner_table = "cleaners"
             conversation_table = choose_table(table_meta, "ai_conversations", "conversations")
             raw_bookings = read_table(conn, booking_table)
             payments = read_table(conn, payment_table)
@@ -2785,9 +2789,6 @@ class Handler(BaseHTTPRequestHandler):
             in_progress = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "in progress")
             completed_today = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "completed" and (date_part(get_value(booking, "completed_at", "completed_date", "finished_at")) == today_s or (not get_value(booking, "completed_at", "completed_date", "finished_at") and date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)))
             active_cleaners = sum(1 for cleaner in cleaners if is_active_cleaner(cleaner))
-            if active_cleaners == 0:
-                assigned_cleaner_ids = {get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner") for booking in bookings if get_value(booking, "cleaner_id", "assigned_cleaner_id", "cleaner")}
-                active_cleaners = len(assigned_cleaner_ids)
             booking_identities = {booking_identity(booking) for booking in bookings if booking_identity(booking) not in (None, "")}
             paid_booking_identities = {payment_booking_identity(payment) for payment in payment_rows if payment_booking_identity(payment) not in (None, "")}
             total_bookings = max(len(bookings), len(booking_identities), len(paid_booking_identities))
