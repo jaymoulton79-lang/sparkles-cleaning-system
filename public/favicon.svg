@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Sparkles OS">
+  <rect width="64" height="64" rx="18" fill="#1677FF"/>
+  <path d="M32 10l4.9 13.1L50 28l-13.1 4.9L32 46l-4.9-13.1L14 28l13.1-4.9L32 10z" fill="#fff"/>
+  <circle cx="48" cy="46" r="4" fill="#fff" opacity=".92"/>
+  <circle cx="16" cy="48" r="3" fill="#fff" opacity=".78"/>
+</svg>

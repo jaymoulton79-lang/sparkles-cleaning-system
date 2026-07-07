@@ -9,7 +9,7 @@ function applyUrl(source){
 function renderLinks(){
   document.querySelector('#sourceLinks').innerHTML = sourceNames.map(source => {
     const url = applyUrl(source);
-    const whatsappText = encodeURIComponent(`Hi, Sparkles Cleaning Cambridge is hiring cleaners. Apply here: ${url}`);
+    const whatsappText = encodeURIComponent(`Hi, Sparkles OS is hiring cleaners. Apply here: ${url}`);
     return `<article class="source-link">
       <strong>${esc(source)}</strong>
       <input readonly value="${esc(url)}">

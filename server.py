@@ -45,7 +45,7 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
+SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles OS <bookings@sparkles.local>")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
 EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "").strip().lower()
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
@@ -88,7 +88,7 @@ DEFAULT_AI_PRICING = {
     "One-off clean": {"base": 7500, "bedroom_extra": 1600, "bathroom_extra": 1100}
 }
 DEFAULT_AI_RESPONSES = {
-    "greeting": "Thanks for contacting Sparkles Cleaning Cambridge. I can help with prices, availability and booking details.",
+    "greeting": "Thanks for contacting Sparkles OS. I can help with prices, availability and booking details.",
     "booking_prompt": "To prepare an accurate quote, please share your name, phone, email, address, postcode, type of clean, bedrooms, bathrooms, preferred date and preferred time.",
     "handoff": "You can complete the secure booking form online and pay the 25% deposit to confirm."
 }
@@ -154,7 +154,7 @@ def email_from_address():
     return (
         runtime_setting("EMAIL_FROM", EMAIL_FROM)
         or runtime_setting("SMTP_FROM", SMTP_FROM)
-        or "Sparkles Cleaning <bookings@sparkles.local>"
+        or "Sparkles OS <bookings@sparkles.local>"
     ).strip()
 
 
@@ -834,7 +834,7 @@ def plain_rows(rows):
 
 
 def sparkles_email_html(title, intro, rows, cta=None):
-    company = html_lib.escape(runtime_setting("COMPANY_NAME", "Sparkles Cleaning Cambridge"))
+    company = html_lib.escape(runtime_setting("COMPANY_NAME", "Sparkles OS"))
     title_html = html_lib.escape(title)
     intro_html = html_lib.escape(intro).replace("\n", "<br>")
     rows_html = "".join(
@@ -847,23 +847,24 @@ def sparkles_email_html(title, intro, rows, cta=None):
     cta_html = ""
     if cta and cta.get("url"):
         cta_html = f"""<p style="margin:26px 0 10px;">
-            <a href="{html_lib.escape(cta['url'])}" style="background:#1463ff;color:#ffffff;text-decoration:none;padding:13px 18px;border-radius:999px;font-weight:700;display:inline-block;">{html_lib.escape(cta.get('label', 'View booking'))}</a>
+            <a href="{html_lib.escape(cta['url'])}" style="background:#1677FF;color:#ffffff;text-decoration:none;padding:13px 18px;border-radius:14px;font-weight:800;display:inline-block;box-shadow:0 10px 24px rgba(22,119,255,.24);">{html_lib.escape(cta.get('label', 'View booking'))}</a>
         </p>"""
     return f"""<!doctype html>
 <html>
-  <body style="margin:0;background:#f4f8ff;font-family:Arial,Helvetica,sans-serif;color:#102033;">
+  <body style="margin:0;background:#f6f9ff;font-family:Inter,Arial,Helvetica,sans-serif;color:#0F172A;">
     <div style="max-width:640px;margin:0 auto;padding:24px;">
-      <div style="background:#1463ff;color:#ffffff;border-radius:22px 22px 0 0;padding:24px;">
-        <div style="font-size:14px;letter-spacing:.08em;text-transform:uppercase;opacity:.9;">{company}</div>
+      <div style="background:#1677FF;color:#ffffff;border-radius:24px 24px 0 0;padding:26px;">
+        <div style="font-size:14px;letter-spacing:.08em;text-transform:uppercase;opacity:.95;font-weight:800;">{company}</div>
         <h1 style="margin:8px 0 0;font-size:26px;line-height:1.2;">{title_html}</h1>
+        <p style="margin:8px 0 0;font-size:14px;opacity:.9;">Smiles Come Standard.</p>
       </div>
-      <div style="background:#ffffff;border-radius:0 0 22px 22px;padding:24px;box-shadow:0 12px 32px rgba(20,99,255,.12);">
+      <div style="background:#ffffff;border-radius:0 0 24px 24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.10);">
         <p style="font-size:16px;line-height:1.6;margin:0 0 18px;">{intro_html}</p>
-        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:#fbfdff;border:1px solid #e5edf7;border-radius:16px;overflow:hidden;">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:#fbfdff;border:1px solid #e5edf7;border-radius:18px;overflow:hidden;">
           {rows_html}
         </table>
         {cta_html}
-        <p style="font-size:13px;color:#6b7f98;line-height:1.5;margin:24px 0 0;">Thank you for choosing {company}. If anything needs changing, please reply to this email.</p>
+        <p style="font-size:13px;color:#64748b;line-height:1.5;margin:24px 0 0;">Thank you for choosing {company}. Smiles Come Standard. If anything needs changing, please reply to this email.</p>
       </div>
     </div>
   </body>
@@ -897,8 +898,8 @@ def send_booking_confirmation_email(booking_id, deposit_paid=None, intro=None):
     deposit_is_paid = bool(deposit_paid) if deposit_paid is not None else None
     rows = booking_email_rows(booking, deposit_is_paid)
     subject = f"Booking confirmation – {booking['reference']}"
-    intro = intro or f"Hello {booking['name']}, thanks for booking with Sparkles Cleaning Cambridge. Here are your booking details."
-    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles Cleaning Cambridge"
+    intro = intro or f"Hello {booking['name']}, thanks for booking with Sparkles OS. Smiles Come Standard. Here are your booking details."
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles OS"
     html_body = sparkles_email_html("Booking confirmation", intro, rows)
     send_workflow_email(booking_id, booking["email"], subject, body, html_body)
     copy_to = email_contact_address()
@@ -923,9 +924,9 @@ def send_cleaner_job_details_email(booking_id):
         ("Address", f"{row['address']}, {row['postcode']}"),
         ("Notes", row["notes"] or "None"),
     ]
-    intro = f"Hello {row['cleaner_name']}, you have been assigned a Sparkles Cleaning Cambridge job. Please review the details below."
+    intro = f"Hello {row['cleaner_name']}, you have been assigned a Sparkles Cleaner Portal job. Please review the details below."
     subject = f"New assigned cleaning job – {row['reference']}"
-    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles Cleaning Cambridge"
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles OS"
     html_body = sparkles_email_html("New assigned job", intro, rows)
     send_workflow_email(booking_id, row["cleaner_email"], subject, body, html_body)
 
@@ -968,7 +969,7 @@ def automation_handler(job):
     if step == "send_quote":
         public_url = runtime_setting("PUBLIC_URL", PUBLIC_URL).rstrip("/")
         link = f"{public_url}/quote?token={booking['quote_token']}"
-        send_workflow_email(booking_id, booking["email"], f"Your Sparkles quote – {booking['reference']}", f"Hello {booking['name']},\n\nYour cleaning quote is £{booking['total_amount']/100:.2f}. A 25% deposit of £{booking['deposit_amount']/100:.2f} confirms the booking.\n\nReview and accept: {link}\n\nSparkles Cleaning Cambridge")
+        send_workflow_email(booking_id, booking["email"], f"Your Sparkles OS quote – {booking['reference']}", f"Hello {booking['name']},\n\nYour cleaning quote is £{booking['total_amount']/100:.2f}. A 25% deposit of £{booking['deposit_amount']/100:.2f} confirms the booking.\n\nReview and accept: {link}\n\nSparkles OS")
         with connect() as conn:
             conn.execute("UPDATE bookings SET quote_status='Sent' WHERE id=?", (booking_id,))
         automation.timeline(booking_id, "Quote sent", f"£{booking['total_amount']/100:.2f} quote sent to customer")
@@ -977,7 +978,7 @@ def automation_handler(job):
             automation.timeline(booking_id, "Abandoned follow-up skipped", f"Payment status is {booking['payment_status']}")
             return
         checkout = booking.get("deposit_checkout_url") or f"{public_url()}/quote?token={booking['quote_token']}"
-        send_workflow_email(booking_id, booking["email"], f"Complete your Sparkles booking - {booking['reference']}", f"Hello {booking['name']},\n\nWe saved your Sparkles Cleaning Cambridge booking request, but the 25% deposit has not been completed yet.\n\nYour quote is £{booking['total_amount']/100:.2f}; the deposit is £{booking['deposit_amount']/100:.2f}.\n\nComplete your booking here: {checkout}\n\nIf you have questions, reply to this email and we will help.")
+        send_workflow_email(booking_id, booking["email"], f"Complete your Sparkles OS booking - {booking['reference']}", f"Hello {booking['name']},\n\nWe saved your Sparkles OS booking request, but the 25% deposit has not been completed yet.\n\nYour quote is £{booking['total_amount']/100:.2f}; the deposit is £{booking['deposit_amount']/100:.2f}.\n\nComplete your booking here: {checkout}\n\nIf you have questions, reply to this email and we will help.")
         automation.timeline(booking_id, "Abandoned booking follow-up sent", "Customer reminded 24 hours after an unpaid booking")
     elif step == "offer_cleaners":
         matches = suitable_cleaners(booking)
@@ -992,7 +993,7 @@ def automation_handler(job):
             send_workflow_email(booking_id, cleaner["email"], f"New cleaning job near {booking['postcode']}", f"Hello {cleaner['name']},\n\nA {booking['clean_type']} is available on {booking['preferred_date']} ({booking['preferred_time']}), {cleaner['distance']} miles away.\n\nView and accept: {link}")
         automation.timeline(booking_id, "Job offered", f"Offered to {len(matches)} suitable cleaner(s), nearest first")
     elif step == "send_payment_confirmation":
-        send_workflow_email(booking_id, booking["email"], f"Deposit received - {booking['reference']}", f"Hello {booking['name']},\n\nThank you. We have received your 25% deposit of £{booking['deposit_amount']/100:.2f} for {booking['clean_type']} on {booking['preferred_date']} ({booking['preferred_time']}).\n\nWe will confirm the assigned cleaner as soon as the job is accepted.\n\nSparkles Cleaning Cambridge")
+        send_workflow_email(booking_id, booking["email"], f"Deposit received - {booking['reference']}", f"Hello {booking['name']},\n\nThank you. We have received your 25% deposit of £{booking['deposit_amount']/100:.2f} for {booking['clean_type']} on {booking['preferred_date']} ({booking['preferred_time']}).\n\nWe will confirm the assigned cleaner as soon as the job is accepted.\n\nSparkles OS")
         automation.timeline(booking_id, "Payment confirmation sent", "Customer notified after deposit payment")
     elif step == "send_confirmations":
         send_workflow_email(booking_id, booking["email"], f"Cleaner confirmed – {booking['reference']}", f"Hello {booking['name']},\n\n{booking['cleaner_name']} is confirmed for {booking['preferred_date']} ({booking['preferred_time']}).")
@@ -1346,7 +1347,7 @@ def initialise():
             created_at TEXT NOT NULL
         )""")
         defaults = [
-            ("COMPANY_NAME", "Sparkles Cleaning Cambridge", 0), ("COMPANY_EMAIL", "", 0),
+            ("COMPANY_NAME", "Sparkles OS", 0), ("COMPANY_EMAIL", "", 0),
             ("COMPANY_PHONE", "", 0), ("BUSINESS_ADDRESS", "", 0), ("PUBLIC_URL", PUBLIC_URL, 0),
             ("STRIPE_SECRET_KEY", "", 1), ("STRIPE_WEBHOOK_SECRET", "", 1),
             ("SMTP_HOST", "", 0), ("SMTP_PORT", "587", 0), ("SMTP_USER", "", 0),
@@ -2946,8 +2947,8 @@ class Handler(BaseHTTPRequestHandler):
             recipient = (data.get("email") or runtime_setting("COMPANY_EMAIL", "") or runtime_setting("ADMIN_EMAIL", "")).strip()
             if not recipient:
                 raise ValueError("Provide an email address for the test.")
-            subject = "Sparkles Cleaning Cambridge test email"
-            body = "This is a test email from Sparkles Cleaning Cambridge. If you received it, SMTP is configured correctly."
+            subject = "Sparkles OS test email"
+            body = "This is a test email from Sparkles OS. Smiles Come Standard. If you received it, email delivery is configured correctly."
             config = smtp_config()
             provider = email_provider_config()
             if not config["host"]:
@@ -2957,7 +2958,7 @@ class Handler(BaseHTTPRequestHandler):
             message = EmailMessage()
             message["From"], message["To"], message["Subject"] = config["from"], recipient, subject
             message.set_content(body)
-            message.add_alternative(sparkles_email_html("Test email", "This is a test email from Sparkles Cleaning Cambridge. If you received it, SMTP is configured correctly.", [
+            message.add_alternative(sparkles_email_html("Test email", "This is a test email from Sparkles OS. Smiles Come Standard. If you received it, email delivery is configured correctly.", [
                 ("Recipient", recipient),
                 ("SMTP host", config["host"]),
                 ("SMTP mode", "SSL" if config["port"] == 465 else "STARTTLS"),
@@ -3118,7 +3119,7 @@ class Handler(BaseHTTPRequestHandler):
                 invoice = event["data"]["object"]
                 with connect() as conn:
                     booking_id, amount = record_invoice_payment(conn, invoice)
-                automation.timeline(booking_id, "Final payment received", f"Stripe invoice paid in full: Â£{amount/100:.2f}")
+                automation.timeline(booking_id, "Final payment received", f"Stripe invoice paid in full: £{amount/100:.2f}")
                 automation.enqueue(booking_id, "send_review")
             self.send_json({"received": True})
         except (ValueError, TypeError, json.JSONDecodeError) as error:

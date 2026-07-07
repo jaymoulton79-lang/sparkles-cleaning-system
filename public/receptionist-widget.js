@@ -2,7 +2,7 @@
   const state={conversationId:localStorage.getItem('sparkles_chat_id'),open:false,seen:new Set()};
   const button=document.createElement('button');
   button.className='sparkles-chat-button';
-  button.textContent='Chat with Sparkles';
+  button.textContent='Chat with Sparkles AI';
   const panel=document.createElement('section');
   panel.className='sparkles-chat';
   panel.innerHTML=`<div class="sparkles-chat-head"><div><h2>Sparkles AI Receptionist</h2><p>Ask a question, get a quote, or book your clean.</p></div><button class="sparkles-chat-close" aria-label="Close">×</button></div><div class="sparkles-chat-body" id="sparklesChatBody"></div><form class="sparkles-chat-form"><input name="message" placeholder="Type your message…" autocomplete="off"><button>Send</button></form>`;

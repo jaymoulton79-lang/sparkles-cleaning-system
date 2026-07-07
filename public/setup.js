@@ -7,7 +7,7 @@ function addAdminFields(){
   const review=document.querySelector('#REVIEW_URL')?.closest('.field');
   if(!review||document.querySelector('#ADMIN_EMAIL'))return;
   review.insertAdjacentHTML('afterend',`
-    <div class="section-title">Admin login</div>
+    <div class="section-title">Owner Command Centre login</div>
     <div class="grid">
       <div class="field"><label for="ADMIN_EMAIL">Admin email</label><input id="ADMIN_EMAIL" name="ADMIN_EMAIL" type="email" autocomplete="username" placeholder="labcontractors@outlook.com"></div>
       <div class="field"><label for="ADMIN_PASSWORD">Admin password</label><input id="ADMIN_PASSWORD" name="ADMIN_PASSWORD" type="password" minlength="8" autocomplete="new-password" placeholder="Leave blank to keep current password"><small>Stored securely as a salted hash.</small></div>

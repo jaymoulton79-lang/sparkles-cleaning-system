@@ -1,4 +1,4 @@
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+﻿const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
 const prettyDate=v=>new Date(`${v}T12:00:00`).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 const stamp=v=>v?new Date(v).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'—';
 const money=p=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((p||0)/100);
@@ -16,7 +16,7 @@ async function load(){
     document.querySelector('#newCount').textContent=bookings.filter(x=>x.status==='New').length;
     document.querySelector('#assignedCount').textContent=bookings.filter(x=>['Assigned','Accepted','In Progress'].includes(x.status)).length;
     if(!bookings.length){
-      document.querySelector('#list').innerHTML='<div class="empty"><strong>No bookings yet</strong><br>Your first request will appear here.</div>';
+      document.querySelector('#list').innerHTML='<div class="empty"><strong>No Sparkles bookings yet</strong><br>Your first request will appear here.</div>';
       return;
     }
     document.querySelector('#list').innerHTML=`<table><thead><tr><th>Customer</th><th>Clean</th><th>Preferred date</th><th>Location</th><th>Status</th><th></th></tr></thead><tbody>${bookings.map((b,i)=>`
@@ -97,3 +97,5 @@ function backdropClose(e){if(e.target.classList.contains('modal-backdrop'))close
 document.querySelector('#adminLogout')?.addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/admin/login'});
 load();
 setInterval(load,5000);
+
+

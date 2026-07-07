@@ -46,12 +46,12 @@ document.querySelector('#settingsForm').onsubmit=async e=>{
     const data=await r.json();
     if(!r.ok)throw new Error(data.error||'Could not save settings.');
     const alert=document.querySelector('#settingsAlert');
-    alert.textContent='AI Office settings saved.';alert.className='alert';alert.style.display='block';alert.style.background='#e5f8f1';alert.style.color='#176b53';
+    alert.textContent='Sparkles AI settings saved.';alert.className='alert';alert.style.display='block';alert.style.background='#e5f8f1';alert.style.color='#176b53';
   }catch(error){
     const alert=document.querySelector('#settingsAlert');
     alert.textContent=error.message;alert.className='alert error';
   }finally{
-    button.disabled=false;button.textContent='Save AI Office settings';
+    button.disabled=false;button.textContent='Save Sparkles AI settings';
   }
 };
 

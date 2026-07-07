@@ -53,7 +53,7 @@ function renderStatuses(rows){
   statusChart.innerHTML=rows.length?rows.map(row=>{
     const width=Math.max(5,Math.round((row.count/total)*100));
     return `<div class="status-row"><div class="status-name">${esc(row.status)}</div><div class="status-track"><div class="status-fill" style="width:${width}%"></div></div><div class="status-count">${row.count}</div></div>`;
-  }).join(''):'<div class="empty-mini">No bookings yet.</div>';
+  }).join(''):'<div class="empty-mini">No Sparkles bookings yet.</div>';
 }
 
 function renderUpcoming(rows){

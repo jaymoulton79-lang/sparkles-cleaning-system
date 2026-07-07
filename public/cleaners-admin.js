@@ -12,7 +12,7 @@ async function loadCleaners(){
     document.querySelector('#dbsTotal').textContent=active.filter(c=>c.dbs_status==='Verified').length;
     document.querySelector('#insuranceTotal').textContent=active.filter(c=>c.insurance_status==='Verified').length;
     if(!cleaners.length){
-      document.querySelector('#cleanerList').innerHTML='<div class="empty card-wide"><strong>No cleaners yet</strong><br>New cleaner accounts will appear here.</div>';
+      document.querySelector('#cleanerList').innerHTML='<div class="empty card-wide"><strong>No Sparkles cleaners yet</strong><br>New cleaner accounts will appear here.</div>';
       return;
     }
     document.querySelector('#cleanerList').innerHTML=cleaners.map(c=>{
