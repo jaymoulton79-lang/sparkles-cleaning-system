@@ -44,6 +44,7 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
 EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "").strip().lower()
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
@@ -147,6 +148,14 @@ def public_url():
     return runtime_setting("PUBLIC_URL", PUBLIC_URL).rstrip("/")
 
 
+def email_from_address():
+    return (
+        runtime_setting("EMAIL_FROM", EMAIL_FROM)
+        or runtime_setting("SMTP_FROM", SMTP_FROM)
+        or "Sparkles Cleaning <bookings@sparkles.local>"
+    ).strip()
+
+
 def smtp_config():
     try:
         port = int(runtime_setting("SMTP_PORT", str(SMTP_PORT)) or "587")
@@ -157,7 +166,7 @@ def smtp_config():
         "port": port,
         "user": runtime_setting("SMTP_USER", SMTP_USER).strip(),
         "password": runtime_setting("SMTP_PASSWORD", SMTP_PASSWORD),
-        "from": runtime_setting("SMTP_FROM", SMTP_FROM).strip(),
+        "from": email_from_address(),
     }
 
 
@@ -200,7 +209,7 @@ def email_provider_config():
         "sendgrid_configured": bool(sendgrid_key),
         "resend_key": resend_key,
         "sendgrid_key": sendgrid_key,
-        "from": runtime_setting("SMTP_FROM", SMTP_FROM).strip(),
+        "from": email_from_address(),
     }
 
 
@@ -1107,7 +1116,7 @@ def initialise():
             ("COMPANY_PHONE", "", 0), ("BUSINESS_ADDRESS", "", 0), ("PUBLIC_URL", PUBLIC_URL, 0),
             ("STRIPE_SECRET_KEY", "", 1), ("STRIPE_WEBHOOK_SECRET", "", 1),
             ("SMTP_HOST", "", 0), ("SMTP_PORT", "587", 0), ("SMTP_USER", "", 0),
-            ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("EMAIL_PROVIDER", "", 0),
+            ("SMTP_PASSWORD", "", 1), ("SMTP_FROM", SMTP_FROM, 0), ("EMAIL_FROM", EMAIL_FROM, 0), ("EMAIL_PROVIDER", "", 0),
             ("RESEND_API_KEY", "", 1), ("SENDGRID_API_KEY", "", 1), ("REVIEW_URL", "", 0),
             ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1),
             ("AI_BUSINESS_HOURS", DEFAULT_BUSINESS_HOURS, 0), ("AI_SERVICE_AREAS", DEFAULT_SERVICE_AREAS, 0),
@@ -1801,7 +1810,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Setup authorization required."}, 401)
         try:
             data = self.read_json()
-            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","EMAIL_PROVIDER","RESEND_API_KEY","SENDGRID_API_KEY","REVIEW_URL","ADMIN_EMAIL"}
+            allowed = {"COMPANY_NAME","COMPANY_EMAIL","COMPANY_PHONE","BUSINESS_ADDRESS","PUBLIC_URL","STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_HOST","SMTP_PORT","SMTP_USER","SMTP_PASSWORD","SMTP_FROM","EMAIL_FROM","EMAIL_PROVIDER","RESEND_API_KEY","SENDGRID_API_KEY","REVIEW_URL","ADMIN_EMAIL"}
             secret_keys = {"STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","SMTP_PASSWORD","RESEND_API_KEY","SENDGRID_API_KEY"}
             existing_admin_hash = runtime_setting("ADMIN_PASSWORD_HASH", "")
             admin_email = str(data.get("ADMIN_EMAIL") or runtime_setting("ADMIN_EMAIL", "")).strip().lower()
@@ -2618,8 +2627,8 @@ class Handler(BaseHTTPRequestHandler):
             "smtp": smtp_diagnostics(),
             "smtp_network": smtp_network_check("smtp.gmail.com", 587),
             "recent_email_log": recent,
-            "required_railway_variables": ["SMTP_HOST", "SMTP_PORT", "SMTP_FROM"],
-            "optional_railway_variables": ["SMTP_USER", "SMTP_PASSWORD", "EMAIL_PROVIDER", "RESEND_API_KEY", "SENDGRID_API_KEY"],
+            "required_railway_variables": ["EMAIL_FROM", "SMTP_FROM"],
+            "optional_railway_variables": ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_PROVIDER", "RESEND_API_KEY", "SENDGRID_API_KEY"],
             "notes": "If smtp_network.conclusion is smtp_port_unreachable_or_blocked, set EMAIL_PROVIDER=resend with RESEND_API_KEY or EMAIL_PROVIDER=sendgrid with SENDGRID_API_KEY."
         })
 
