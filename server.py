@@ -3110,33 +3110,34 @@ class Handler(BaseHTTPRequestHandler):
             action = data.get("action")
             now = utcnow().isoformat()
             with connect() as conn:
-                booking = conn.execute("SELECT * FROM bookings WHERE id=? AND cleaner_id=?", (booking_id, session["subject_id"])).fetchone()
+                booking = conn.execute("SELECT b.*, c.name AS cleaner_name FROM bookings b JOIN cleaners c ON c.id=b.cleaner_id WHERE b.id=? AND b.cleaner_id=? AND c.active=1", (booking_id, session["subject_id"])).fetchone()
                 if not booking:
                     return self.send_json({"error": "Assigned job not found."}, 404)
+                cleaner_name = booking["cleaner_name"] or session["email"]
                 if action == "accept":
                     if booking["status"] not in ("Assigned", "Accepted"):
                         return self.send_json({"error": "Only assigned jobs can be accepted."}, 409)
                     conn.execute("UPDATE bookings SET status='Accepted', accepted_at=COALESCE(accepted_at, ?) WHERE id=?", (now, booking_id))
-                    event, detail, status = "Job accepted", "Cleaner accepted the assigned job", "Accepted"
+                    event, detail, status = "Job accepted", f"{cleaner_name} accepted the assigned job", "Accepted"
                 elif action == "decline":
-                    if booking["status"] not in ("Assigned", "Accepted"):
+                    if booking["status"] != "Assigned":
                         return self.send_json({"error": "Only assigned jobs can be declined."}, 409)
                     conn.execute("UPDATE bookings SET status='New', cleaner_id=NULL, assigned_at=NULL, declined_at=?, cleaner_notes=CASE WHEN ?<>'' THEN ? ELSE cleaner_notes END WHERE id=?", (now, data.get("notes", "").strip(), data.get("notes", "").strip(), booking_id))
-                    event, detail, status = "Job declined", "Cleaner declined the job; booking returned to New", "New"
+                    event, detail, status = "Job declined", f"{cleaner_name} declined the job; booking returned to New for reassignment", "New"
                 elif action == "start":
-                    if booking["status"] not in ("Accepted", "Assigned", "In Progress"):
+                    if booking["status"] not in ("Accepted", "In Progress"):
                         return self.send_json({"error": "Only accepted jobs can be started."}, 409)
                     conn.execute("UPDATE bookings SET status='In Progress', accepted_at=COALESCE(accepted_at, ?), started_at=COALESCE(started_at, ?) WHERE id=?", (now, now, booking_id))
-                    event, detail, status = "Job started", "Cleaner started the job", "In Progress"
+                    event, detail, status = "Job started", f"{cleaner_name} started the job", "In Progress"
                 elif action == "complete":
-                    if booking["status"] not in ("In Progress", "Accepted", "Assigned", "Completed"):
-                        return self.send_json({"error": "Only active jobs can be completed."}, 409)
+                    if booking["status"] not in ("In Progress", "Completed"):
+                        return self.send_json({"error": "Only jobs in progress can be completed."}, 409)
                     conn.execute("UPDATE bookings SET status='Completed', accepted_at=COALESCE(accepted_at, ?), started_at=COALESCE(started_at, ?), completed_at=COALESCE(completed_at, ?) WHERE id=?", (now, now, now, booking_id))
-                    event, detail, status = "Job completed", "Cleaner marked the job complete", "Completed"
+                    event, detail, status = "Job completed", f"{cleaner_name} marked the job complete", "Completed"
                 elif action == "notes":
                     notes = data.get("notes", "").strip()
                     conn.execute("UPDATE bookings SET cleaner_notes=? WHERE id=?", (notes, booking_id))
-                    event, detail, status = "Cleaner notes updated", "Cleaner updated job notes", booking["status"]
+                    event, detail, status = "Cleaner notes updated", f"{cleaner_name} updated job notes", booking["status"]
                 else:
                     raise ValueError("Invalid cleaner job action.")
             automation.timeline(booking_id, event, detail)

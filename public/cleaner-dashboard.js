@@ -8,8 +8,9 @@ function actions(job){
     buttons.push(`<button onclick="jobAction(${job.id},'accept',this)">Accept Job</button>`);
     buttons.push(`<button class="secondary" onclick="declineJob(${job.id},this)">Decline Job</button>`);
   }
-  if(['Assigned','Accepted'].includes(job.status))buttons.push(`<button onclick="jobAction(${job.id},'start',this)">Start Job</button>`);
-  if(['Assigned','Accepted','In Progress'].includes(job.status))buttons.push(`<button class="complete-btn" onclick="jobAction(${job.id},'complete',this)">Complete Job</button>`);
+  if(job.status==='Accepted')buttons.push(`<button onclick="jobAction(${job.id},'start',this)">Start Job</button>`);
+  if(job.status==='In Progress')buttons.push(`<button class="complete-btn" onclick="jobAction(${job.id},'complete',this)">Complete Job</button>`);
+  if(job.status==='Completed')buttons.push(`<span class="job-done">Job completed</span>`);
   return buttons.join('');
 }
 
