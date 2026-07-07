@@ -18,6 +18,8 @@ import sys
 import secrets
 import re
 import html as html_lib
+import csv
+import io
 from email.message import EmailMessage
 from email.utils import parseaddr
 import automation
@@ -1251,6 +1253,28 @@ def initialise():
         cleaner_columns = {row[1] for row in conn.execute("PRAGMA table_info(cleaners)")}
         if "password_hash" not in cleaner_columns:
             conn.execute("ALTER TABLE cleaners ADD COLUMN password_hash TEXT")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cleaner_applicants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                email TEXT NOT NULL,
+                postcode TEXT NOT NULL,
+                experience TEXT NOT NULL DEFAULT '',
+                travel_radius REAL NOT NULL DEFAULT 5,
+                hourly_rate REAL NOT NULL DEFAULT 0,
+                availability TEXT NOT NULL DEFAULT '[]',
+                services TEXT NOT NULL DEFAULT '[]',
+                dbs_status TEXT NOT NULL DEFAULT 'Unknown',
+                insurance_status TEXT NOT NULL DEFAULT 'Unknown',
+                source TEXT NOT NULL DEFAULT 'Website',
+                status TEXT NOT NULL DEFAULT 'New',
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                approved_cleaner_id INTEGER REFERENCES cleaners(id)
+            )
+        """)
         conn.execute("""CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -1575,6 +1599,18 @@ class Handler(BaseHTTPRequestHandler):
                 item["services"] = json.loads(item["services"])
                 cleaners.append(item)
             return self.send_json(cleaners)
+        if path == "/api/cleaner-applicants":
+            if not self.require_admin():
+                return
+            with connect() as conn:
+                rows = conn.execute("SELECT * FROM cleaner_applicants ORDER BY id DESC").fetchall()
+            applicants = []
+            for row in rows:
+                item = dict(row)
+                item["availability"] = json.loads(item.get("availability") or "[]")
+                item["services"] = json.loads(item.get("services") or "[]")
+                applicants.append(item)
+            return self.send_json(applicants)
         if path.startswith("/api/bookings/") and path.endswith("/matches"):
             if not self.require_admin():
                 return
@@ -1646,6 +1682,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(PUBLIC / "admin-emergency-reset.html")
         if path in ("/cleaner/login", "/cleaner/login/"):
             return self.send_file(PUBLIC / "cleaner-login.html")
+        if path in ("/cleaner/apply", "/cleaner/apply/"):
+            return self.send_file(PUBLIC / "cleaner-apply.html")
         if path in ("/customer", "/customer/", "/customer/login", "/customer/login/"):
             return self.send_file(PUBLIC / "customer.html")
         if path in ("/reset-password", "/reset-password/"):
@@ -1666,6 +1704,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "cleaners-admin.html")
+        if path in ("/admin/cleaner-applicants", "/admin/cleaner-applicants/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "cleaner-applicants-admin.html")
         if path in ("/admin/calendar", "/admin/calendar/"):
             if not self.is_admin():
                 return self.redirect("/admin/login")
@@ -1702,7 +1744,7 @@ class Handler(BaseHTTPRequestHandler):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html", "/admin-diagnostics.html"}
+        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html", "/admin-diagnostics.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -1764,6 +1806,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": automation.retry(job_id)})
         if path == "/api/cleaners":
             return self.create_cleaner()
+        if path == "/api/cleaner-applicants":
+            return self.create_cleaner_applicant()
+        if path == "/api/cleaner-applicants/import":
+            if not self.require_admin():
+                return
+            return self.import_cleaner_applicants()
+        if path.startswith("/api/cleaner-applicants/") and path.endswith("/approve"):
+            if not self.require_admin():
+                return
+            return self.approve_cleaner_applicant(path)
         if path.startswith("/api/cleaner/jobs/") and path.endswith("/action"):
             return self.cleaner_job_action(path)
         if path.startswith("/api/cleaner/jobs/") and path.endswith("/photos"):
@@ -1873,6 +1925,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.update_cleaner(path)
+        if path.startswith("/api/cleaner-applicants/"):
+            if not self.require_admin():
+                return
+            return self.update_cleaner_applicant(path)
         self.send_error(404)
 
     def read_json(self):
@@ -3081,6 +3137,158 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": "An account already exists for that email address."}, 409)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, 400)
+
+    def create_cleaner_applicant(self):
+        try:
+            data = self.read_json()
+            required = ["name", "phone", "email", "postcode", "availability", "services"]
+            if any(not data.get(key) for key in required):
+                raise ValueError("Please complete your name, phone, email, postcode, availability and services.")
+            radius = float(data.get("travel_radius") or 5)
+            rate = float(data.get("hourly_rate") or 0)
+            source = str(data.get("source") or "Website").strip()[:80] or "Website"
+            now = datetime.now(timezone.utc).isoformat()
+            with connect() as conn:
+                cursor = conn.execute("""
+                    INSERT INTO cleaner_applicants
+                    (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (
+                    data["name"].strip(),
+                    data["phone"].strip(),
+                    data["email"].strip().lower(),
+                    data["postcode"].strip().upper(),
+                    str(data.get("experience") or "").strip(),
+                    radius,
+                    rate,
+                    json.dumps(data.get("availability") or []),
+                    json.dumps(data.get("services") or []),
+                    str(data.get("dbs_status") or "Unknown").strip(),
+                    str(data.get("insurance_status") or "Unknown").strip(),
+                    source,
+                    "New",
+                    str(data.get("notes") or "").strip(),
+                    now,
+                    now
+                ))
+            return self.send_json({"ok": True, "id": cursor.lastrowid}, 201)
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def import_cleaner_applicants(self):
+        try:
+            data = self.read_json()
+            csv_text = str(data.get("csv") or "").strip()
+            default_source = str(data.get("source") or "CSV import").strip() or "CSV import"
+            if not csv_text:
+                raise ValueError("Paste CSV data before importing.")
+            reader = csv.DictReader(io.StringIO(csv_text))
+            if not reader.fieldnames:
+                raise ValueError("CSV needs a header row.")
+            imported, skipped = 0, []
+            now = datetime.now(timezone.utc).isoformat()
+            with connect() as conn:
+                for index, row in enumerate(reader, start=2):
+                    normalised = {str(k or "").strip().lower().replace(" ", "_"): (v or "").strip() for k, v in row.items()}
+                    name = normalised.get("name") or normalised.get("full_name")
+                    phone = normalised.get("phone") or normalised.get("mobile")
+                    email = (normalised.get("email") or normalised.get("email_address") or "").lower()
+                    postcode = (normalised.get("postcode") or normalised.get("post_code") or "").upper()
+                    if not (name and phone and email and postcode):
+                        skipped.append({"row": index, "reason": "Missing name, phone, email or postcode"})
+                        continue
+                    availability = [part.strip() for part in (normalised.get("availability") or "").replace(";", ",").split(",") if part.strip()]
+                    services = [part.strip() for part in (normalised.get("services") or normalised.get("services_offered") or "").replace(";", ",").split(",") if part.strip()]
+                    try:
+                        conn.execute("""
+                            INSERT INTO cleaner_applicants
+                            (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """, (
+                            name, phone, email, postcode,
+                            normalised.get("experience") or "",
+                            float(normalised.get("travel_radius") or 5),
+                            float(normalised.get("hourly_rate") or 0),
+                            json.dumps(availability),
+                            json.dumps(services),
+                            normalised.get("dbs_status") or "Unknown",
+                            normalised.get("insurance_status") or "Unknown",
+                            normalised.get("source") or default_source,
+                            normalised.get("status") or "New",
+                            normalised.get("notes") or "",
+                            now,
+                            now
+                        ))
+                        imported += 1
+                    except (sqlite3.Error, ValueError) as error:
+                        skipped.append({"row": index, "reason": str(error)})
+            return self.send_json({"ok": True, "imported": imported, "skipped": skipped})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def update_cleaner_applicant(self, path):
+        try:
+            applicant_id = int(path.split("/")[3])
+            data = self.read_json()
+            allowed_statuses = {"New", "Contacted", "Interview", "Approved", "Rejected", "Added as Cleaner"}
+            status = str(data.get("status") or "").strip()
+            notes = str(data.get("notes") or "").strip()
+            if status and status not in allowed_statuses:
+                raise ValueError("Invalid applicant status.")
+            with connect() as conn:
+                applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+                if not applicant:
+                    return self.send_json({"error": "Applicant not found."}, 404)
+                conn.execute("""
+                    UPDATE cleaner_applicants
+                    SET status=COALESCE(NULLIF(?,''),status), notes=?, updated_at=?
+                    WHERE id=?
+                """, (status, notes, datetime.now(timezone.utc).isoformat(), applicant_id))
+            return self.send_json({"ok": True})
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError) as error:
+            return self.send_json({"error": str(error) or "Invalid applicant update."}, 400)
+
+    def approve_cleaner_applicant(self, path):
+        try:
+            applicant_id = int(path.split("/")[3])
+            data = self.read_json()
+            password = str(data.get("password") or "").strip()
+            if len(password) < 8:
+                raise ValueError("Set a cleaner password of at least 8 characters.")
+            with connect() as conn:
+                applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+                if not applicant:
+                    return self.send_json({"error": "Applicant not found."}, 404)
+                if applicant["approved_cleaner_id"]:
+                    return self.send_json({"error": "Applicant is already added as a cleaner."}, 409)
+                cursor = conn.execute("""INSERT INTO cleaners
+                    (name,phone,email,password_hash,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                        applicant["name"],
+                        applicant["phone"],
+                        applicant["email"],
+                        hash_password(password),
+                        applicant["postcode"],
+                        float(applicant["travel_radius"] or 5),
+                        float(applicant["hourly_rate"] or 0) or 15,
+                        applicant["availability"],
+                        applicant["services"],
+                        applicant["dbs_status"],
+                        applicant["insurance_status"],
+                        1,
+                        datetime.now(timezone.utc).isoformat()
+                    ))
+                cleaner_id = cursor.lastrowid
+                conn.execute("""
+                    UPDATE cleaner_applicants
+                    SET status='Added as Cleaner', approved_cleaner_id=?, updated_at=?
+                    WHERE id=?
+                """, (cleaner_id, datetime.now(timezone.utc).isoformat(), applicant_id))
+            return self.send_json({"ok": True, "cleaner_id": cleaner_id}, 201)
+        except sqlite3.IntegrityError:
+            return self.send_json({"error": "A cleaner account already exists for that email address."}, 409)
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError) as error:
+            return self.send_json({"error": str(error)}, 400)
 
     def get_quote(self, token):
         with connect() as conn:

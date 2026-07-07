@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cleaner Applicants | Sparkles Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/recruitment.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header>
+    <nav class="nav">
+      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning<small>Admin</small></span></a>
+      <div class="admin-nav">
+        <a href="/admin/dashboard">Dashboard</a>
+        <a href="/admin/bookings">Bookings</a>
+        <a href="/admin/calendar">Calendar</a>
+        <a href="/admin/cleaners">Cleaners</a>
+        <a class="active" href="/admin/cleaner-applicants">Applicants</a>
+        <a href="/admin/automations">Automations</a>
+        <a href="/admin/ai-office">AI Office Manager</a>
+        <a href="/admin/receptionist">AI Receptionist</a>
+      </div>
+    </nav>
+  </header>
+  <main class="dash">
+    <div class="dash-head">
+      <div>
+        <h1>Cleaner applicants</h1>
+        <p>Collect leads from Indeed, Facebook, WhatsApp, referrals and your website before approving them as cleaners.</p>
+      </div>
+      <a class="primary-small" href="/cleaner/apply?source=website" target="_blank">Open apply form</a>
+    </div>
+
+    <section class="recruit-links">
+      <h2>Recruitment links</h2>
+      <p>Use these links in adverts, posts and WhatsApp messages so every applicant is tagged automatically.</p>
+      <div id="sourceLinks" class="link-grid"></div>
+    </section>
+
+    <section class="recruit-import">
+      <h2>CSV import</h2>
+      <p>Paste exported leads with headers such as name, phone, email, postcode, source, availability, services.</p>
+      <textarea id="csvInput" rows="5" placeholder="name,phone,email,postcode,source&#10;Jane Cleaner,07123456789,jane@example.com,CB1 1AA,Indeed"></textarea>
+      <button class="secondary" id="importCsv">Import CSV</button>
+      <p id="importMessage" class="form-message"></p>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><span>Total applicants</span><strong id="totalApplicants">—</strong></div>
+      <div class="stat"><span>New</span><strong id="newApplicants">—</strong></div>
+      <div class="stat"><span>Ready to contact</span><strong id="contactApplicants">—</strong></div>
+    </section>
+
+    <section id="applicantList" class="applicant-grid"><div class="empty card-wide">Loading applicants…</div></section>
+  </main>
+  <div id="approveModal"></div>
+  <script src="/cleaner-applicants-admin.js"></script>
+</body>
+</html>
