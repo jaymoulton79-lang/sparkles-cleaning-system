@@ -2113,6 +2113,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.cleaner_job_photos(path)
         if path.startswith("/api/bookings/") and path.endswith("/checkout"):
             return self.start_checkout(path)
+        if path.startswith("/api/bookings/") and path.endswith("/resend-final-invoice"):
+            if not self.require_admin():
+                return
+            return self.resend_final_invoice(path)
         if path.startswith("/api/bookings/") and path.endswith("/assign"):
             if not self.require_admin():
                 return
@@ -3351,6 +3355,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"url": session["url"], "session_id": session["id"]})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, 400)
+
+    def resend_final_invoice(self, path):
+        try:
+            booking_id = int(path.split("/")[3])
+            with connect() as conn:
+                booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+            if not booking:
+                return self.send_json({"error": "Booking not found."}, 404)
+            if booking["status"] != "Completed":
+                return self.send_json({"error": "Final balance emails can only be sent after the job is completed."}, 409)
+            if booking["payment_status"] == "Paid in Full":
+                return self.send_json({"error": "This booking is already paid in full."}, 409)
+            if int(booking["balance_amount"] or 0) <= 0:
+                return self.send_json({"error": "This booking has no remaining balance to collect."}, 409)
+            automation_handler({"step": "send_final_invoice", "booking_id": booking_id})
+            automation.timeline(booking_id, "Final balance email resent", "Admin resent the final balance email with a secure Stripe Checkout link")
+            return self.send_json({"ok": True, "message": "Final balance email sent."})
+        except (ValueError, TypeError) as error:
+            self.send_json({"error": str(error) or "Could not resend final balance email."}, 400)
+        except Exception as error:
+            logger.error(json.dumps({"resend_final_invoice": "failed", "error": str(error)}))
+            self.send_json({"error": str(error) or "Could not resend final balance email."}, 500)
 
     def verify_checkout(self, session_id):
         try:

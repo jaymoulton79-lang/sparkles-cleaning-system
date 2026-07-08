@@ -31,6 +31,7 @@ async function load(){
           ${b.cleaner_name?`<div class="assigned-to">${esc(b.cleaner_name)}</div>`:''}
           ${b.deposit_checkout_url&&b.payment_status==='Deposit Due'?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Open deposit checkout</a>`:''}
           ${b.status==='Completed'&&b.payment_status!=='Paid in Full'?`<br><button class="row-button balance-link" onclick="startBalancePayment(${b.id},this)">Pay balance online</button>`:''}
+          ${b.status==='Completed'&&b.payment_status!=='Paid in Full'?`<br><button class="row-button" onclick="resendFinalInvoice(${b.id},this)">Resend final email</button>`:''}
         </td>
         <td>${b._source==='stripe.checkout.sessions'?'<button class="assign-button" disabled>Recovered payment</button>':`<button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button>`}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick='archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})'>Archive test</button></td>
       </tr>
@@ -79,6 +80,23 @@ async function startBalancePayment(id,button){
   }
 }
 
+async function resendFinalInvoice(id,button){
+  button.disabled=true;
+  const original=button.textContent;
+  button.textContent='Sending final email...';
+  try{
+    const r=await fetch(`/api/bookings/${id}/resend-final-invoice`,{method:'POST'});
+    const result=await r.json();
+    if(!r.ok)throw new Error(result.error||'Could not send the final balance email.');
+    button.textContent='Email sent';
+    await load();
+  }catch(e){
+    alert(e.message);
+    button.disabled=false;
+    button.textContent=original;
+  }
+}
+
 
 async function archiveBooking(id,button,recoveredSessionId=''){
   const booking=bookings.find(x=>String(x.id)===String(id)||String(x.recovered_session_id||'')===String(recoveredSessionId||''));
@@ -120,5 +138,4 @@ function backdropClose(e){if(e.target.classList.contains('modal-backdrop'))close
 document.querySelector('#adminLogout')?.addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/admin/login'});
 load();
 setInterval(load,5000);
-
 
