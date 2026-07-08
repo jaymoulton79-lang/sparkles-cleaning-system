@@ -1161,6 +1161,9 @@ class PgCursor:
             return [self._convert(row) for row in rows]
         return [self._convert(row) for row in self._cursor.fetchall()]
 
+    def __iter__(self):
+        return iter(self.fetchall())
+
 
 class PostgresConnection:
     def __init__(self, dsn):
