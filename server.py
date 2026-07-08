@@ -949,11 +949,17 @@ def send_booking_confirmation_email(booking_id, deposit_paid=None, intro=None):
         return
     deposit_is_paid = bool(deposit_paid) if deposit_paid is not None else None
     rows = booking_email_rows(booking, deposit_is_paid)
-    subject = f"Booking confirmation – {booking['reference']}"
     customer_name = display_customer_name(booking["name"])
-    intro = intro or f"Hello {customer_name}, thanks for booking with Sparkles Cleaning. Smiles Come Standard. Here are your booking details."
+    if deposit_is_paid:
+        subject = f"Booking confirmation – {booking['reference']}"
+        heading = "Booking confirmation"
+        intro = intro or f"Hello {customer_name}, thanks for booking with Sparkles Cleaning. Your deposit has been received and your booking is confirmed. Smiles Come Standard."
+    else:
+        subject = f"Booking request received – {booking['reference']}"
+        heading = "Booking request received"
+        intro = intro or f"Hello {customer_name}, thanks for requesting a Sparkles Cleaning booking. Your clean is not confirmed until the 25% deposit has been paid securely by Stripe. Here are the details."
     body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles Cleaning"
-    html_body = sparkles_email_html("Booking confirmation", intro, rows)
+    html_body = sparkles_email_html(heading, intro, rows)
     send_workflow_email(booking_id, booking["email"], subject, body, html_body)
     copy_to = email_contact_address()
     if copy_to and copy_to.lower() != str(booking["email"]).lower():
@@ -1086,7 +1092,8 @@ def automation_handler(job):
             automation.timeline(booking_id, "Review deferred", f"Payment status is {booking['payment_status']}; waiting for final payment", "Warning")
             raise RuntimeError("Final payment has not been confirmed yet.")
         review_url = runtime_setting("REVIEW_URL", "") or f"{runtime_setting('PUBLIC_URL', PUBLIC_URL).rstrip('/')}/review-thanks?booking={booking_id}"
-        send_workflow_email(booking_id, booking["email"], "How did we do?", f"Hello {booking['name']},\n\nThank you for your payment. We would love your feedback: {review_url}")
+        customer_name = display_customer_name(booking["name"])
+        send_workflow_email(booking_id, booking["email"], "How did we do?", f"Hello {customer_name},\n\nThank you for your payment. We would love your feedback: {review_url}")
         automation.timeline(booking_id, "Review requested", "Review request sent after final payment")
     else:
         raise RuntimeError(f"Unknown automation step: {step}")
@@ -2011,6 +2018,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(PUBLIC / "cleaner-dashboard.html")
         if path in ("/payment-success", "/payment-success/"):
             return self.send_file(PUBLIC / "payment-success.html")
+        if path in ("/review-thanks", "/review-thanks/"):
+            return self.send_file(PUBLIC / "review-thanks.html")
         if path in ("/quote", "/quote/"):
             return self.send_file(PUBLIC / "quote.html")
         if path in ("/job-offer", "/job-offer/"):
@@ -3887,15 +3896,39 @@ class Handler(BaseHTTPRequestHandler):
         try:
             cleaner_id = int(path.split("/")[3])
             data = self.read_json()
-            if "active" not in data:
-                raise ValueError("Missing cleaner active status.")
-            active = 1 if data.get("active") else 0
+            allowed_days = {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
+            allowed_services = {"Regular clean", "Deep clean", "End of tenancy", "One-off clean"}
+            updates, values = [], []
+            if "active" in data:
+                updates.append("active=?")
+                values.append(1 if data.get("active") else 0)
+            if "availability" in data:
+                availability = data.get("availability")
+                if not isinstance(availability, list) or not availability:
+                    raise ValueError("Availability must include at least one day.")
+                availability = [str(day).strip() for day in availability if str(day).strip()]
+                if any(day not in allowed_days for day in availability):
+                    raise ValueError("Invalid availability day.")
+                updates.append("availability=?")
+                values.append(json.dumps(availability))
+            if "services" in data:
+                services = data.get("services")
+                if not isinstance(services, list) or not services:
+                    raise ValueError("Services must include at least one service.")
+                services = [str(service).strip() for service in services if str(service).strip()]
+                if any(service not in allowed_services for service in services):
+                    raise ValueError("Invalid service.")
+                updates.append("services=?")
+                values.append(json.dumps(services))
+            if not updates:
+                raise ValueError("No cleaner updates supplied.")
             with connect() as conn:
                 cleaner = conn.execute("SELECT * FROM cleaners WHERE id=?", (cleaner_id,)).fetchone()
                 if not cleaner:
                     return self.send_json({"error": "Cleaner not found."}, 404)
-                conn.execute("UPDATE cleaners SET active=? WHERE id=?", (active, cleaner_id))
-            return self.send_json({"ok": True, "id": cleaner_id, "active": active})
+                values.append(cleaner_id)
+                conn.execute(f"UPDATE cleaners SET {', '.join(updates)} WHERE id=?", values)
+            return self.send_json({"ok": True, "id": cleaner_id})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid cleaner update."}, 400)
 
