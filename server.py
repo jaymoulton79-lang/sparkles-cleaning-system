@@ -3920,6 +3920,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Invalid service.")
                 updates.append("services=?")
                 values.append(json.dumps(services))
+            if "password" in data:
+                password = str(data.get("password") or "")
+                if len(password) < 8:
+                    raise ValueError("Password must be at least 8 characters.")
+                updates.append("password_hash=?")
+                values.append(hash_password(password))
             if not updates:
                 raise ValueError("No cleaner updates supplied.")
             with connect() as conn:

@@ -62,6 +62,7 @@ async function loadCleaners(){
           <span class="${c.insurance_status==='Verified'?'verified':''}">Insurance: ${esc(c.insurance_status)}</span>
         </div>
         <div class="cleaner-actions">
+          <button class="row-button secondary" onclick="setCleanerPassword(${c.id},this)">Set password</button>
           <button class="row-button ${isActive?'danger':''}" onclick="toggleCleaner(${c.id},${isActive?0:1},this)">${isActive?'Deactivate':'Reactivate'}</button>
         </div>
       </article>`;
@@ -94,6 +95,32 @@ async function saveCleanerProfile(id,button){
   }catch(e){
     button.disabled=false;
     button.textContent='Save cleaner profile';
+    alert(e.message);
+  }
+}
+
+async function setCleanerPassword(id,button){
+  const cleaner=cleaners.find(c=>Number(c.id)===Number(id));
+  const name=cleaner?.name||'this cleaner';
+  const password=prompt(`Set a temporary password for ${name}. Use at least 8 characters.`);
+  if(password===null)return;
+  if(password.length<8)return alert('Password must be at least 8 characters.');
+  if(!confirm(`Update the cleaner login password for ${name}?`))return;
+  button.disabled=true;
+  button.textContent='Saving…';
+  try{
+    const r=await fetch(`/api/cleaners/${id}`,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password})
+    });
+    const result=await r.json();
+    if(!r.ok)throw new Error(result.error||'Could not update cleaner password.');
+    alert(`Password updated for ${name}. Give the new password to the cleaner.`);
+    await loadCleaners();
+  }catch(e){
+    button.disabled=false;
+    button.textContent='Set password';
     alert(e.message);
   }
 }
