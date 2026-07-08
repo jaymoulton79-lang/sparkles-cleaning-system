@@ -141,4 +141,9 @@ async function toggleCleaner(id,active,button){
   }
 }
 
+window.loadCleaners = loadCleaners;
+window.saveCleanerProfile = saveCleanerProfile;
+window.setCleanerPassword = setCleanerPassword;
+window.toggleCleaner = toggleCleaner;
+
 loadCleaners();
