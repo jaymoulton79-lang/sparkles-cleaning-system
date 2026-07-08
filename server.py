@@ -3066,6 +3066,12 @@ class Handler(BaseHTTPRequestHandler):
                 if payment_booking_identity(payment) not in (None, "")
                 and normalise(payment.get("payment_type")) == "deposit"
             }
+            paid_balance_booking_identities = {
+                str(payment_booking_identity(payment))
+                for payment in payment_rows
+                if payment_booking_identity(payment) not in (None, "")
+                and normalise(payment.get("payment_type")) in {"balance", "final", "remaining balance"}
+            }
             revenue_today = money_between(payment_rows, today_s, today_s, start_ts=today_start_ts, end_ts=tomorrow_start_ts)
             revenue_week = money_between(payment_rows, week_start_s, today_s, start_ts=week_start_ts, end_ts=tomorrow_start_ts)
             revenue_month = money_between(payment_rows, month_start_s, today_s, start_ts=month_start_ts, end_ts=tomorrow_start_ts)
@@ -3084,6 +3090,18 @@ class Handler(BaseHTTPRequestHandler):
             )
             in_progress = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "in progress")
             completed_today = sum(1 for booking in bookings if normalise(get_value(booking, "status", "booking_status")) == "completed" and (date_part(get_value(booking, "completed_at", "completed_date", "finished_at")) == today_s or (not get_value(booking, "completed_at", "completed_date", "finished_at") and date_part(get_value(booking, "preferred_date", "booking_date", "service_date", "scheduled_date", "clean_date", "date")) == today_s)))
+            outstanding_balances = sum(
+                int_value(get_value(booking, "balance_amount", "balance", "remaining_amount", "remaining_balance"))
+                for booking in bookings
+                if str(booking_identity(booking)) not in paid_balance_booking_identities
+                and normalise(get_value(booking, "payment_status", "payment_state")) != "paid in full"
+                and normalise(get_value(booking, "status", "booking_status")) not in {"cancelled", "canceled"}
+                and (
+                    str(booking_identity(booking)) in paid_deposit_booking_identities
+                    or normalise(get_value(booking, "status", "booking_status")) in {"deposit paid", "assigned", "accepted", "in progress", "completed"}
+                    or normalise(get_value(booking, "payment_status", "deposit_status")) in {"deposit paid", "balance due"}
+                )
+            )
             active_cleaners = sum(1 for cleaner in cleaners if is_active_cleaner(cleaner))
             booking_identities = {booking_identity(booking) for booking in bookings if booking_identity(booking) not in (None, "")}
             paid_booking_identities = {payment_booking_identity(payment) for payment in payment_rows if payment_booking_identity(payment) not in (None, "")}
@@ -3164,6 +3182,7 @@ class Handler(BaseHTTPRequestHandler):
                 "in_progress": in_progress,
                 "completed_today": completed_today,
                 "active_cleaners": active_cleaners,
+                "outstanding_balances": outstanding_balances,
                 "ai_waiting_review": ai_waiting,
                 "booking_conversion_rate": conversion_rate,
                 "average_job_value": int(round(average_job or 0))

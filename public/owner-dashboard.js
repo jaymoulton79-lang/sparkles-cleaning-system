@@ -13,7 +13,7 @@ const metricConfig=[
   ["Today's Jobs",'today_bookings','number','Scheduled for today'],
   ['Bookings Waiting','waiting_assignment','warning','Ready for assignment'],
   ['Cleaners Working','active_cleaners','number','Active cleaner accounts'],
-  ['Outstanding Balances','outstanding_balances','pending','Metric not changed in design-system phase'],
+  ['Outstanding Balances','outstanding_balances','money','Unpaid customer balances'],
   ['Sparkles AI Summary','ai_waiting_review','warning','Conversations to review']
 ];
 
