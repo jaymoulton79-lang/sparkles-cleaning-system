@@ -704,24 +704,20 @@ def create_checkout(booking, payment_type):
         "cancel_url": f"{public_url()}/?payment=cancelled&booking={booking['id']}", "client_reference_id": str(booking["id"]),
         "metadata[booking_id]": str(booking["id"]), "metadata[payment_type]": payment_type,
         "line_items[0][price_data][currency]": "gbp", "line_items[0][price_data][unit_amount]": str(amount),
-        "line_items[0][price_data][product_data][name]": f"Sparkles Cleaning – {label}",
+        "line_items[0][price_data][product_data][name]": f"Sparkles Cleaning - {label}",
         "line_items[0][price_data][product_data][description]": booking["reference"], "line_items[0][quantity]": "1"
     })
 
 
 def create_balance_invoice(conn, booking):
-    if not runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY) or booking["stripe_invoice_id"] or booking["payment_status"] == "Paid in Full":
+    if not runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY) or booking["payment_status"] == "Paid in Full":
         return None
-    customer_id = booking["stripe_customer_id"]
-    if not customer_id:
-        customer = stripe_request("customers", {"email": booking["email"], "name": booking["name"], "metadata[booking_id]": str(booking["id"])})
-        customer_id = customer["id"]
-        conn.execute("UPDATE bookings SET stripe_customer_id=? WHERE id=?", (customer_id, booking["id"]))
-    stripe_request("invoiceitems", {"customer": customer_id, "amount": str(booking["balance_amount"]), "currency": "gbp", "description": f"Remaining balance for {booking['reference']}", "metadata[booking_id]": str(booking["id"])})
-    invoice = stripe_request("invoices", {"customer": customer_id, "collection_method": "send_invoice", "days_until_due": "7", "auto_advance": "false", "metadata[booking_id]": str(booking["id"]), "description": f"Sparkles Cleaning – {booking['reference']}"})
-    finalized = stripe_request(f"invoices/{invoice['id']}/finalize", {"auto_advance": "false"})
-    conn.execute("UPDATE bookings SET stripe_invoice_id=?, balance_payment_url=?, payment_status='Balance Due' WHERE id=?", (invoice["id"], finalized.get("hosted_invoice_url"), booking["id"]))
-    return finalized
+    checkout = create_checkout(booking, "balance")
+    conn.execute(
+        "UPDATE bookings SET balance_payment_url=?, payment_status='Balance Due' WHERE id=?",
+        (checkout["url"], booking["id"]),
+    )
+    return {"id": checkout["id"], "hosted_invoice_url": checkout["url"], "url": checkout["url"]}
 
 
 def record_payment(conn, booking_id, payment_type, amount, provider_id, status="Paid"):
@@ -1066,7 +1062,24 @@ def automation_handler(job):
             url = invoice.get("hosted_invoice_url") if invoice else booking["balance_payment_url"]
         if not url:
             raise RuntimeError("Stripe invoice URL is not available")
-        send_workflow_email(booking_id, booking["email"], f"Final invoice – {booking['reference']}", f"Thank you for choosing Sparkles. Your remaining balance is £{booking['balance_amount']/100:.2f}.\n\nPay securely: {url}")
+        rows = [
+            ("Booking reference", booking["reference"]),
+            ("Service", booking["clean_type"]),
+            ("Date", booking["preferred_date"]),
+            ("Total", money_pounds(booking["total_amount"])),
+            ("Deposit paid", money_pounds(booking["deposit_amount"])),
+            ("Balance due", money_pounds(booking["balance_amount"])),
+        ]
+        customer_name = display_customer_name(booking["name"])
+        intro = f"Hello {customer_name}, thank you for choosing Sparkles Cleaning. Your clean is complete and your remaining balance is now ready to pay securely."
+        body = f"{intro}\n\n{plain_rows(rows)}\n\nPay your remaining balance securely here: {url}\n\nSparkles Cleaning\nSmiles Come Standard."
+        html_body = sparkles_email_html(
+            "Final balance due",
+            intro,
+            rows,
+            {"url": url, "label": "Pay remaining balance"},
+        )
+        send_workflow_email(booking_id, booking["email"], f"Final balance due - {booking['reference']}", body, html_body)
         automation.timeline(booking_id, "Final invoice sent", f"Balance £{booking['balance_amount']/100:.2f}")
     elif step == "send_review":
         if booking["payment_status"] != "Paid in Full":
