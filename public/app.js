@@ -6,7 +6,12 @@ const submit = document.querySelector('#submit');
 const files = document.querySelector('#files');
 const photos = document.querySelector('#photos');
 const date = document.querySelector('#preferred_date');
-const prices = { 'Regular clean': 5500, 'Deep clean': 9500, 'End of tenancy': 14500, 'One-off clean': 7500 };
+const prices = {
+  'Regular clean': { base: 5500, bedroom_extra: 1400, bathroom_extra: 1000 },
+  'Deep clean': { base: 9500, bedroom_extra: 1800, bathroom_extra: 1300 },
+  'End of tenancy': { base: 14500, bedroom_extra: 2400, bathroom_extra: 1700 },
+  'One-off clean': { base: 7500, bedroom_extra: 1600, bathroom_extra: 1100 }
+};
 const money = p => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(p / 100);
 
 date.min = new Date().toISOString().split('T')[0];
@@ -14,13 +19,16 @@ showPaymentReturnNotice();
 submit.insertAdjacentHTML('beforebegin', '<div class="quote-box sp-card"><div><strong>Estimated cleaning total</strong><span>25% deposit due now via secure Stripe Checkout</span></div><div class="quote-price"><b id="quoteTotal">—</b><small id="quoteDeposit">Choose your clean details</small></div></div>');
 
 function updateQuote() {
-  const type = form.clean_type.value, beds = Number(form.bedrooms.value), baths = Number(form.bathrooms.value);
+  const type = form.clean_type.value;
+  const beds = Number(form.bedrooms.value);
+  const baths = Number(form.bathrooms.value);
   if (!type || form.bedrooms.value === '' || !baths) {
     document.querySelector('#quoteTotal').textContent = '—';
     document.querySelector('#quoteDeposit').textContent = 'Choose your clean details';
     return;
   }
-  const total = prices[type] + Math.max(0, beds - 1) * 1400 + Math.max(0, baths - 1) * 1000;
+  const rule = prices[type];
+  const total = rule.base + Math.max(0, beds - 1) * rule.bedroom_extra + Math.max(0, baths - 1) * rule.bathroom_extra;
   document.querySelector('#quoteTotal').textContent = money(total);
   document.querySelector('#quoteDeposit').textContent = `${money(Math.round(total * .25))} deposit`;
 }
@@ -46,7 +54,7 @@ form.addEventListener('submit', async e => {
     document.querySelector('#formCard').innerHTML = `
       <div class="success booking-success-panel">
         <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"></div>
-        <div class="success-icon">✓</div>
+        <div class="success-icon">Success</div>
         <h2>Sparkles booking received, ${firstName}.</h2>
         <p>Smiles Come Standard. Your quote is ready — pay the 25% deposit to confirm your booking.</p>
         <p class="ref">${escapeHtml(result.reference)}</p>
