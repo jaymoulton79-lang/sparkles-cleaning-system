@@ -41,7 +41,7 @@ form.addEventListener('submit',async e=>{
     if(!response.ok)throw new Error(result.error||'Something went wrong.');
     const paymentPanel=result.checkout_url
       ? `<a class="pay-button" href="${escapeHtml(result.checkout_url)}">Pay 25% deposit securely</a><p class="fine">You will be taken to Stripe test checkout. Your booking stays as Deposit Due until payment succeeds.</p>`
-      : `<div class="alert error show">Your booking was saved in Sparkles OS, but the Stripe deposit link could not be created yet. ${escapeHtml(result.checkout_error||'Please contact Sparkles OS to arrange payment.')}</div>`;
+      : `<div class="alert error show">Your booking was saved in Sparkles Cleaning Cambridge, but the Stripe deposit link could not be created yet. ${escapeHtml(result.checkout_error||'Please contact Sparkles Cleaning Cambridge to arrange payment.')}</div>`;
     document.querySelector('#formCard').innerHTML=`<div class="success"><div class="success-icon">✓</div><h2>Sparkles booking received, ${firstName}.</h2><p>Smiles Come Standard. Your quote is ready — pay the 25% deposit to confirm your booking.</p><p class="ref">${escapeHtml(result.reference)}</p><p class="payment-note">Total ${money(result.total_amount)} · Deposit ${money(result.deposit_amount)} · Status ${escapeHtml(result.payment_status)}</p>${paymentPanel}</div>`;
     window.scrollTo({top:0,behavior:'smooth'});
   }catch(error){
@@ -50,7 +50,7 @@ form.addEventListener('submit',async e=>{
     alertBox.scrollIntoView({behavior:'smooth',block:'center'});
   }finally{
     submit.disabled=false;
-    submit.textContent='Book with Sparkles OS';
+    submit.textContent='Book with Sparkles Cleaning Cambridge';
   }
 });
 

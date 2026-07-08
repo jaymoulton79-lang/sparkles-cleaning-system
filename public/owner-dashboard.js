@@ -8,31 +8,25 @@ const upcomingJobs=document.querySelector('#upcomingJobs');
 const recentReviews=document.querySelector('#recentReviews');
 
 const metricConfig=[
-  ['Revenue today','revenue_today','money','Successful payments today'],
-  ['Revenue this week','revenue_week','money','Monday to today'],
-  ['Revenue this month','revenue_month','money','Month to date'],
-  ['Deposits today','deposits_today','money','Deposits received today'],
-  ['Total bookings','total_bookings','number','All booking requests'],
-  ["Today's bookings",'today_bookings','number','Scheduled for today'],
-  ["Tomorrow's bookings",'tomorrow_bookings','number','Scheduled for tomorrow'],
-  ['Waiting assignment','waiting_assignment','warning','Jobs needing a cleaner'],
-  ['Jobs in progress','in_progress','warning','Cleaner has started'],
-  ['Completed today','completed_today','success','Finished today'],
-  ['Active cleaners','active_cleaners','number','Available cleaner accounts'],
-  ['AI review queue','ai_waiting_review','warning','Conversations to check'],
-  ['Conversion rate','booking_conversion_rate','percent','Paid deposit bookings'],
-  ['Average booking value','average_job_value','money','Across quoted bookings']
+  ['Revenue Today','revenue_today','money','Successful payments today'],
+  ['Revenue This Week','revenue_week','money','Monday to today'],
+  ["Today's Jobs",'today_bookings','number','Scheduled for today'],
+  ['Bookings Waiting','waiting_assignment','warning','Ready for assignment'],
+  ['Cleaners Working','active_cleaners','number','Active cleaner accounts'],
+  ['Outstanding Balances','outstanding_balances','pending','Metric not changed in Phase 1'],
+  ['Sparkles AI Summary','ai_waiting_review','warning','Conversations to review']
 ];
 
 function formatMetric(type,value){
   if(type==='money')return money(value);
   if(type==='percent')return `${Number(value||0).toFixed(1)}%`;
+  if(type==='pending')return value ?? '—';
   return value??0;
 }
 
 function renderMetrics(cards){
   metricGrid.innerHTML=metricConfig.map(([label,key,type,sub])=>`
-    <article class="owner-card ${type==='money'?'money':''} ${type==='warning'?'warning':''} ${type==='success'?'success':''}">
+    <article class="owner-card ${type==='money'?'money':''} ${type==='warning'?'warning':''} ${type==='success'?'success':''} ${type==='pending'?'pending':''}">
       <span>${esc(label)}</span>
       <strong>${esc(formatMetric(type,cards[key]))}</strong>
       <small>${esc(sub)}</small>
@@ -48,12 +42,20 @@ function renderRevenue(days){
   }).join('');
 }
 
-function renderStatuses(rows){
-  const total=rows.reduce((sum,row)=>sum+Number(row.count||0),0)||1;
-  statusChart.innerHTML=rows.length?rows.map(row=>{
-    const width=Math.max(5,Math.round((row.count/total)*100));
-    return `<div class="status-row"><div class="status-name">${esc(row.status)}</div><div class="status-track"><div class="status-fill" style="width:${width}%"></div></div><div class="status-count">${row.count}</div></div>`;
-  }).join(''):'<div class="empty-mini">No Sparkles bookings yet.</div>';
+function renderAiSummary(cards){
+  const waiting=Number(cards.waiting_assignment||0);
+  const cleaners=Number(cards.active_cleaners||0);
+  const reviews=Number(cards.ai_waiting_review||0);
+  statusChart.innerHTML=`
+    <div class="ai-pulse">
+      <p><strong>Good morning Luke.</strong></p>
+      <p>Revenue today ${money(cards.revenue_today)}.</p>
+      <p>${waiting} booking${waiting===1?'':'s'} require assigning.</p>
+      <p>${cleaners} cleaner${cleaners===1?'':'s'} available.</p>
+      <p>${reviews} Sparkles AI conversation${reviews===1?'':'s'} waiting for review.</p>
+      <p>Everything is running smoothly.</p>
+    </div>
+  `;
 }
 
 function renderUpcoming(rows){
@@ -92,7 +94,7 @@ async function loadDashboard(){
     if(!r.ok)throw new Error(data.error||'Could not load dashboard.');
     renderMetrics(data.cards);
     renderRevenue(data.charts.revenue_days||[]);
-    renderStatuses(data.charts.booking_statuses||[]);
+    renderAiSummary(data.cards);
     renderUpcoming(data.upcoming||[]);
     renderReviews(data.reviews||[]);
   }catch(error){

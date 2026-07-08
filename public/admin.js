@@ -1,6 +1,6 @@
-ï»¿const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
 const prettyDate=v=>new Date(`${v}T12:00:00`).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-const stamp=v=>v?new Date(v).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'â€”';
+const stamp=v=>v?new Date(v).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'—';
 const money=p=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((p||0)/100);
 const gallery=photos=>photos?.length?`<div class="photos">${photos.map(p=>`<a href="${esc(p.url)}" target="_blank"><img src="${esc(p.url)}" alt="${esc(p.name)}"></a>`).join('')}</div>`:'None uploaded';
 const paymentStatusClass=status=>status==='Deposit Paid'||status==='Paid in Full'?'paid':status==='Deposit Due'?'due':'';
@@ -21,8 +21,8 @@ async function load(){
     }
     document.querySelector('#list').innerHTML=`<table><thead><tr><th>Customer</th><th>Clean</th><th>Preferred date</th><th>Location</th><th>Status</th><th></th></tr></thead><tbody>${bookings.map((b,i)=>`
       <tr>
-        <td class="customer"><strong>${esc(b.name)}</strong><span>${esc(b.phone)} Â· ${esc(b.email)}</span></td>
-        <td><strong>${esc(b.clean_type)}</strong><div class="date-sub">${b.bedrooms} bed Â· ${b.bathrooms} bath</div></td>
+        <td class="customer"><strong>${esc(b.name)}</strong><span>${esc(b.phone)} · ${esc(b.email)}</span></td>
+        <td><strong>${esc(b.clean_type)}</strong><div class="date-sub">${b.bedrooms} bed · ${b.bathrooms} bath</div></td>
         <td><strong>${prettyDate(b.preferred_date)}</strong><div class="date-sub">${esc(b.preferred_time)}</div></td>
         <td>${esc(b.postcode)}</td>
         <td>
@@ -52,7 +52,7 @@ async function load(){
 }
 
 function paymentHistory(b){
-  return b.payments?.length?`<ul class="payment-history">${b.payments.map(p=>`<li>${esc(p.payment_type==='deposit'?'Deposit':'Balance')} Â· ${money(p.amount)} Â· ${esc(p.status)}</li>`).join('')}</ul>`:'<div class="date-sub">No payments recorded</div>';
+  return b.payments?.length?`<ul class="payment-history">${b.payments.map(p=>`<li>${esc(p.payment_type==='deposit'?'Deposit':'Balance')} · ${money(p.amount)} · ${esc(p.status)}</li>`).join('')}</ul>`:'<div class="date-sub">No payments recorded</div>';
 }
 
 function toggle(i){document.querySelector(`#detail-${i}`).classList.toggle('open')}
@@ -60,7 +60,7 @@ function toggle(i){document.querySelector(`#detail-${i}`).classList.toggle('open
 async function archiveBooking(id,button,recoveredSessionId=''){
   const booking=bookings.find(x=>String(x.id)===String(id)||String(x.recovered_session_id||'')===String(recoveredSessionId||''));
   if(!confirm(`Archive ${booking?.reference||'this booking'} as test data? It will be hidden from the normal admin list and excluded from dashboard metrics.`))return;
-  button.disabled=true;button.textContent='Archivingâ€¦';
+  button.disabled=true;button.textContent='Archiving…';
   try{
     const url=recoveredSessionId?`/api/recovered-bookings/${encodeURIComponent(recoveredSessionId)}`:`/api/bookings/${encodeURIComponent(id)}`;
     const body=recoveredSessionId
@@ -74,17 +74,17 @@ async function archiveBooking(id,button,recoveredSessionId=''){
 
 async function openAssign(id){
   const b=bookings.find(x=>x.id===id);const root=document.querySelector('#modalRoot');
-  root.innerHTML=`<div class="modal-backdrop" onclick="backdropClose(event)"><section class="modal"><div class="modal-head"><div><h2>Assign a cleaner</h2><p>${esc(b.clean_type)} Â· ${prettyDate(b.preferred_date)} Â· ${esc(b.postcode)}</p></div><button class="modal-close" onclick="closeModal()" aria-label="Close">Ã—</button></div><div class="matches"><div class="no-matches">Finding nearby available cleanersâ€¦</div></div></section></div>`;
+  root.innerHTML=`<div class="modal-backdrop" onclick="backdropClose(event)"><section class="modal"><div class="modal-head"><div><h2>Assign a cleaner</h2><p>${esc(b.clean_type)} · ${prettyDate(b.preferred_date)} · ${esc(b.postcode)}</p></div><button class="modal-close" onclick="closeModal()" aria-label="Close">×</button></div><div class="matches"><div class="no-matches">Finding nearby available cleaners…</div></div></section></div>`;
   try{
     const r=await fetch(`/api/bookings/${id}/matches`);const matches=await r.json();if(!r.ok)throw new Error(matches.error);
     const box=root.querySelector('.matches');
     if(!matches.length){box.innerHTML='<div class="no-matches"><strong>No eligible cleaners found</strong><br>Try adding a cleaner who offers this service, is available that day and covers this postcode.</div>';return}
-    box.innerHTML=matches.map(c=>`<article class="match"><div><h3>${esc(c.name)}</h3><p>${c.distance} miles away Â· Â£${Number(c.hourly_rate).toFixed(2)}/hour Â· ${esc(c.postcode)}</p><div class="match-chips"><span>${esc(c.dbs_status)} DBS</span><span>${esc(c.insurance_status)} insurance</span></div></div><button onclick="assign(${id},${c.id},this)">Assign ${esc(c.name.split(' ')[0])}</button></article>`).join('');
+    box.innerHTML=matches.map(c=>`<article class="match"><div><h3>${esc(c.name)}</h3><p>${c.distance} miles away · £${Number(c.hourly_rate).toFixed(2)}/hour · ${esc(c.postcode)}</p><div class="match-chips"><span>${esc(c.dbs_status)} DBS</span><span>${esc(c.insurance_status)} insurance</span></div></div><button onclick="assign(${id},${c.id},this)">Assign ${esc(c.name.split(' ')[0])}</button></article>`).join('');
   }catch(e){root.querySelector('.matches').innerHTML=`<div class="match-error">${esc(e.message||'Could not find cleaners.')}</div>`}
 }
 
 async function assign(bookingId,cleanerId,button){
-  button.disabled=true;button.textContent='Assigningâ€¦';
+  button.disabled=true;button.textContent='Assigning…';
   try{
     const r=await fetch(`/api/bookings/${bookingId}/assign`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cleaner_id:cleanerId})});
     const result=await r.json();if(!r.ok)throw new Error(result.error);

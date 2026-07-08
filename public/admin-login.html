@@ -1,6 +1,63 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><title>Owner Command Centre Login | Sparkles OS</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/cleaner.css"><link rel="stylesheet" href="/payments.css"></head>
-<body><div class="topbar"></div><header><nav class="nav"><a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles OS<small>Owner Command Centre login</small></span></a><a class="admin-link" href="/">Sparkles Booking Centre →</a></nav></header>
-<main class="payment-page"><section class="payment-card auth-card"><h1>Owner Command Centre login</h1><p>Secure access for Sparkles OS staff. Smiles Come Standard.</p><div id="authAlert" class="alert"></div><form id="loginForm"><div class="field"><label>Email</label><input name="email" type="email" autocomplete="email" required></div><div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div><button class="submit" type="submit">Log in</button></form><p class="fine"><a href="/reset-password?role=admin">Forgot password or need to set the first password?</a><br><a href="/admin/emergency-reset">Emergency admin reset</a></p></section></main>
-<script src="/admin-login.js"></script></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Sparkles Owner Command Centre Login | Sparkles Cleaning Cambridge</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/payments.css">
+</head>
+<body class="login-body">
+  <main class="sparkles-login-shell">
+    <section class="login-brand-panel" aria-label="Sparkles Cleaning Cambridge">
+      <a class="sparkles-wordmark" href="/">
+        <span class="sparkles-logo-mark">✦</span>
+        <span>
+          Sparkles Cleaning Cambridge
+          <small>Smiles Come Standard.</small>
+        </span>
+      </a>
+      <div class="login-copy">
+        <div class="eyebrow">Sparkles V2 preview</div>
+        <h1>Sparkles Owner Command Centre</h1>
+        <p>Fast, clean control for bookings, cleaners, payments and Sparkles AI.</p>
+      </div>
+      <div class="login-trust-row" aria-label="Platform highlights">
+        <span>Secure admin access</span>
+        <span>Stripe ready</span>
+        <span>Cambridge local</span>
+      </div>
+    </section>
+
+    <section class="login-card auth-card">
+      <div class="login-card-head">
+        <span class="sparkles-logo-mark small">✦</span>
+        <div>
+          <h1>Welcome back</h1>
+          <p>Log in to your Owner Command Centre.</p>
+        </div>
+      </div>
+      <div id="authAlert" class="alert"></div>
+      <form id="loginForm">
+        <div class="field">
+          <label>Email</label>
+          <input name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input name="password" type="password" autocomplete="current-password" required placeholder="Your secure password">
+        </div>
+        <div class="login-options">
+          <label class="remember-me"><input type="checkbox" name="remember_me" value="1"><span>Remember me</span></label>
+          <a href="/reset-password?role=admin">Forgot password?</a>
+        </div>
+        <button class="submit" type="submit">Log in</button>
+      </form>
+      <p class="fine"><a href="/admin/emergency-reset">Emergency admin reset</a></p>
+    </section>
+  </main>
+  <script src="/admin-login.js"></script>
+</body>
+</html>
