@@ -1,59 +1,47 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>Sparkles Owner Command Centre Login | Sparkles Cleaning Cambridge</title>
+  <title>Sparkles Owner Command Centre Login | Sparkles Cleaning</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/cleaner.css">
   <link rel="stylesheet" href="/payments.css">
+  <link rel="stylesheet" href="/sparkles-design-system.css">
 </head>
-<body class="login-body">
+<body class="sparkles-ds sparkles-login-page">
   <main class="sparkles-login-shell">
-    <section class="login-brand-panel" aria-label="Sparkles Cleaning Cambridge">
-      <a class="sparkles-wordmark" href="/">
-        <span class="sparkles-logo-mark">✦</span>
-        <span>
-          Sparkles Cleaning Cambridge
-          <small>Smiles Come Standard.</small>
-        </span>
-      </a>
+    <section class="login-brand-panel" aria-label="Sparkles Cleaning">
+      <a class="sp-wordmark" href="/"><img class="sp-logo-img sp-logo-img-lg" src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"><span>Sparkles Cleaning<small>Smiles Come Standard.</small></span></a>
       <div class="login-copy">
-        <div class="eyebrow">Sparkles V2 preview</div>
-        <h1>Sparkles Owner Command Centre</h1>
-        <p>Fast, clean control for bookings, cleaners, payments and Sparkles AI.</p>
+        <div class="sp-kicker">Sparkles Owner Command Centre</div>
+        <h1 class="sp-title">Sparkles Owner Command Centre</h1>
+        <p class="sp-subtitle">Smiles Come Standard.</p>
       </div>
       <div class="login-trust-row" aria-label="Platform highlights">
         <span>Secure admin access</span>
-        <span>Stripe ready</span>
-        <span>Cambridge local</span>
+        <span>Premium platform</span>
+        <span>Smiles Come Standard.</span>
       </div>
     </section>
-
-    <section class="login-card auth-card">
+    <section class="login-card sp-card sp-card-pad auth-card">
       <div class="login-card-head">
-        <span class="sparkles-logo-mark small">✦</span>
+        <img class="sp-logo-img" src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo">
         <div>
-          <h1>Welcome back</h1>
-          <p>Log in to your Owner Command Centre.</p>
+          <h1>Sign in</h1>
+          <p>Access your Owner Command Centre.</p>
         </div>
       </div>
       <div id="authAlert" class="alert"></div>
       <form id="loginForm">
-        <div class="field">
-          <label>Email</label>
-          <input name="email" type="email" autocomplete="email" required placeholder="you@example.com">
-        </div>
-        <div class="field">
-          <label>Password</label>
-          <input name="password" type="password" autocomplete="current-password" required placeholder="Your secure password">
-        </div>
+        <div class="field"><label>Email</label><input name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
+        <div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required placeholder="Your secure password"></div>
         <div class="login-options">
           <label class="remember-me"><input type="checkbox" name="remember_me" value="1"><span>Remember me</span></label>
           <a href="/reset-password?role=admin">Forgot password?</a>
         </div>
-        <button class="submit" type="submit">Log in</button>
+        <button class="submit sp-button" type="submit">Log in</button>
       </form>
       <p class="fine"><a href="/admin/emergency-reset">Emergency admin reset</a></p>
     </section>

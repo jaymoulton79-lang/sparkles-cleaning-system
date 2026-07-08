@@ -13,7 +13,7 @@ const metricConfig=[
   ["Today's Jobs",'today_bookings','number','Scheduled for today'],
   ['Bookings Waiting','waiting_assignment','warning','Ready for assignment'],
   ['Cleaners Working','active_cleaners','number','Active cleaner accounts'],
-  ['Outstanding Balances','outstanding_balances','pending','Metric not changed in Phase 1'],
+  ['Outstanding Balances','outstanding_balances','pending','Metric not changed in design-system phase'],
   ['Sparkles AI Summary','ai_waiting_review','warning','Conversations to review']
 ];
 
@@ -26,7 +26,7 @@ function formatMetric(type,value){
 
 function renderMetrics(cards){
   metricGrid.innerHTML=metricConfig.map(([label,key,type,sub])=>`
-    <article class="owner-card ${type==='money'?'money':''} ${type==='warning'?'warning':''} ${type==='success'?'success':''} ${type==='pending'?'pending':''}">
+    <article class="owner-card sp-card ${type==='money'?'money':''} ${type==='warning'?'warning':''} ${type==='success'?'success':''} ${type==='pending'?'pending':''}">
       <span>${esc(label)}</span>
       <strong>${esc(formatMetric(type,cards[key]))}</strong>
       <small>${esc(sub)}</small>
@@ -79,7 +79,7 @@ function renderReviews(rows){
 }
 
 function sessionExpired(){
-  metricGrid.innerHTML='<div class="owner-card loading">Your admin session expired. Redirecting to login…</div>';
+  metricGrid.innerHTML='<div class="owner-card loading sp-loader">Your admin session expired. Redirecting to login…</div>';
   setTimeout(()=>{location.href='/admin/login?expired=1'},350);
 }
 
@@ -98,7 +98,7 @@ async function loadDashboard(){
     renderUpcoming(data.upcoming||[]);
     renderReviews(data.reviews||[]);
   }catch(error){
-    metricGrid.innerHTML='<div class="owner-card loading">Could not load the command centre. Please refresh.</div>';
+    metricGrid.innerHTML='<div class="owner-card loading sp-loader">Could not load the command centre. Please refresh.</div>';
   }
 }
 
