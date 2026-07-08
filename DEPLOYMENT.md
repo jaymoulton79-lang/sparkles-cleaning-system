@@ -1,12 +1,13 @@
 # Production deployment
 
-Sparkles runs as a single Docker container with a persistent SQLite data volume. Put it behind a TLS-terminating reverse proxy or a cloud HTTPS load balancer.
+Sparkles runs as a single Docker container. Local development uses SQLite, but Railway production should use PostgreSQL via `DATABASE_URL` so bookings, payments and cleaner records survive redeploys. Put it behind a TLS-terminating reverse proxy or a cloud HTTPS load balancer.
 
 ## 1. Configure secrets
 
 Copy `.env.example` to `.env` and replace every placeholder. At minimum set:
 
 - `PUBLIC_URL` to the final HTTPS URL.
+- `DATABASE_URL` to the Railway PostgreSQL connection string in production.
 - `ADMIN_SETUP_TOKEN` to a long random value (32+ bytes).
 - Stripe test or live secret and webhook signing secrets.
 - SMTP host, port, username, password and sender.
@@ -37,38 +38,53 @@ Subscribe to `checkout.session.completed`, `invoice.paid` and `invoice.payment_s
 
 ## 4. Cloud deployment
 
-Deploy the image to any container host that supports a persistent volume, including AWS ECS, Google Cloud Run with a mounted volume, Azure Container Apps, Fly.io, Render or a Linux VM. Configure:
+Deploy the image to any container host that supports PostgreSQL or a persistent volume, including AWS ECS, Google Cloud Run, Azure Container Apps, Fly.io, Render, Railway or a Linux VM. Configure:
 
 - Container port: `8000`
 - Liveness path: `/healthz`
 - Readiness path: `/readyz`
-- Persistent mount: `/app/data`
 - Minimum instances: `1`
 - Maximum instances: `1`
 
-SQLite and the embedded automation worker require a single application replica. Before scaling horizontally, move bookings, jobs and configuration to PostgreSQL and run the automation worker as a separate service.
+The embedded automation worker should still run with a single application replica. Before scaling horizontally, run the automation worker as a separate service.
 
 ### Railway
 
-Railway does not support Dockerfile `VOLUME` instructions. The Dockerfile is intentionally free of `VOLUME`; create a Railway Volume in the Railway dashboard and mount it to:
+Recommended Railway setup:
 
-```text
-/app/data
-```
+- Add Railway PostgreSQL.
+- Copy the Postgres `DATABASE_URL` into the app service variables.
+- Keep replicas/instances at `1`.
+- Use `/readyz` as the health check path.
 
-This keeps the SQLite database and uploaded photos persistent while staying compatible with Railway's build system.
+If you choose the SQLite fallback instead of PostgreSQL, Railway does not support Dockerfile `VOLUME` instructions. Create a Railway Volume in the Railway dashboard and mount it to `/app/data`, then set `SPARKLES_DB_PATH=/app/data/sparkles.db`. PostgreSQL is safer for production.
 
 Set these Railway service values:
 
 - Start command: use the Dockerfile default, `python server.py`.
 - Public port: `8000`.
 - Health check path: `/readyz`.
-- Volume mount path: `/app/data`.
 - Replicas/instances: `1`.
+
+### SQLite to PostgreSQL migration
+
+1. Before changing production variables, export the existing SQLite database from the current deployment or download `/app/data/sparkles.db` if it is on a Railway Volume.
+2. Add Railway PostgreSQL to the project.
+3. Set the app service `DATABASE_URL` to the Railway PostgreSQL connection string.
+4. From a trusted machine with the SQLite file available, run:
+
+```bash
+pip install -r requirements.txt
+DATABASE_URL="postgresql://..." python migrate_sqlite_to_postgres.py --source ./sparkles.db
+```
+
+5. Redeploy the app.
+6. Log into `/admin/diagnostics` and confirm the tables have non-zero row counts.
+7. Create a new test booking, redeploy, and confirm the booking remains visible.
 
 ## 5. Backups and restore
 
-Back up `/app/data/sparkles.db` and `/app/data/uploads` every day. Test restoration regularly. For a consistent SQLite backup, use the SQLite online backup API or briefly stop the container before copying the database.
+For PostgreSQL, use Railway's PostgreSQL backups/exports and test restoration regularly. If using SQLite fallback, back up `/app/data/sparkles.db` and `/app/data/uploads` every day.
 
 ## 6. Logs and operations
 

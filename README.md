@@ -16,7 +16,29 @@ The scheduling calendar is at `http://localhost:8000/admin/calendar` and include
 
 Cleaner matching filters by the requested service, day of the week and travel radius, then sorts eligible cleaners by approximate distance between Cambridge postcode districts.
 
-Data is created in `data/sparkles.db`; uploaded photos are saved in `data/uploads/`.
+Local development data is created in `data/sparkles.db`; uploaded photos are saved in `data/uploads/`.
+
+## Production database
+
+For Railway production, use Railway PostgreSQL so customer bookings, payments, cleaners and AI conversations survive redeploys.
+
+Local development keeps using SQLite automatically when `DATABASE_URL` is blank. Production switches to PostgreSQL when `DATABASE_URL` starts with `postgres://` or `postgresql://`.
+
+Safe migration from an existing SQLite deployment:
+
+1. Export or copy the current `sparkles.db` before changing production variables.
+2. Add Railway PostgreSQL to the project.
+3. Set the app service `DATABASE_URL` to the Railway PostgreSQL connection string.
+4. Run:
+
+```powershell
+$env:DATABASE_URL="postgresql://..."
+python migrate_sqlite_to_postgres.py --source path\to\sparkles.db
+```
+
+5. Redeploy and verify `/admin/diagnostics` shows PostgreSQL-backed tables with live row counts.
+
+Do not run production on Railway's ephemeral filesystem without either PostgreSQL or a Railway Volume.
 
 ## Stripe test mode
 

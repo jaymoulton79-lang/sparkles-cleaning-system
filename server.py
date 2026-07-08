@@ -31,6 +31,17 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo
 
+try:
+    import psycopg
+except ImportError:  # Local development can continue with SQLite only.
+    psycopg = None
+
+DB_ERROR_TYPES = (sqlite3.Error,)
+DB_INTEGRITY_ERROR_TYPES = (sqlite3.IntegrityError,)
+if psycopg is not None:
+    DB_ERROR_TYPES = (sqlite3.Error, psycopg.Error)
+    DB_INTEGRITY_ERROR_TYPES = (sqlite3.IntegrityError, psycopg.IntegrityError)
+
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
 DATA = ROOT / "data"
@@ -1068,6 +1079,217 @@ def automation_handler(job):
         raise RuntimeError(f"Unknown automation step: {step}")
 
 
+POSTGRES_SCHEMES = ("postgres://", "postgresql://")
+POSTGRES_ID_TABLES = {
+    "bookings", "cleaners", "cleaner_applicants", "customers", "payments",
+    "customer_reviews", "ai_conversations", "ai_messages", "automation_jobs",
+    "booking_timeline", "cleaner_offers", "email_log"
+}
+POSTGRES_RESERVED_TABLES = {"workflow_config", "app_config", "sessions", "password_reset_tokens", "archived_stripe_sessions"}
+
+
+def database_url():
+    return os.environ.get("DATABASE_URL", "").strip()
+
+
+def using_postgres():
+    return database_url().startswith(POSTGRES_SCHEMES)
+
+
+def normalise_postgres_url(value):
+    if value.startswith("postgres://"):
+        return "postgresql://" + value.removeprefix("postgres://")
+    return value
+
+
+class DbRow:
+    def __init__(self, columns, values):
+        self._columns = list(columns)
+        self._values = tuple(values)
+        self._data = {column: self._values[index] for index, column in enumerate(self._columns)}
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return self._data[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+    def keys(self):
+        return self._data.keys()
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    def items(self):
+        return self._data.items()
+
+
+class PgCursor:
+    def __init__(self, cursor=None, rows=None, columns=None, lastrowid=None):
+        self._cursor = cursor
+        self._rows = rows
+        self._columns = columns
+        self.lastrowid = lastrowid
+
+    def _convert(self, row):
+        if row is None:
+            return None
+        if isinstance(row, DbRow):
+            return row
+        if isinstance(row, dict):
+            return DbRow(row.keys(), row.values())
+        columns = self._columns
+        if columns is None and self._cursor and self._cursor.description:
+            columns = [description.name for description in self._cursor.description]
+        return DbRow(columns or [], row)
+
+    def fetchone(self):
+        if self._rows is not None:
+            if not self._rows:
+                return None
+            return self._convert(self._rows.pop(0))
+        return self._convert(self._cursor.fetchone())
+
+    def fetchall(self):
+        if self._rows is not None:
+            rows, self._rows = self._rows, []
+            return [self._convert(row) for row in rows]
+        return [self._convert(row) for row in self._cursor.fetchall()]
+
+
+class PostgresConnection:
+    def __init__(self, dsn):
+        if psycopg is None:
+            raise RuntimeError("PostgreSQL is selected with DATABASE_URL, but psycopg is not installed. Add requirements.txt dependencies and redeploy.")
+        self._conn = psycopg.connect(normalise_postgres_url(dsn), autocommit=False)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if exc_type:
+            self._conn.rollback()
+        else:
+            self._conn.commit()
+        self._conn.close()
+
+    def execute(self, sql, params=()):
+        return self._execute(sql, params)
+
+    def executemany(self, sql, seq_of_params):
+        cursor = None
+        for params in seq_of_params:
+            cursor = self._execute(sql, params)
+        return cursor or PgCursor(rows=[], columns=[])
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def _execute(self, sql, params=()):
+        stripped = " ".join(sql.strip().split())
+        lower = stripped.lower()
+
+        if lower.startswith("pragma table_info"):
+            table_name = re.search(r"pragma\s+table_info\((.+)\)", stripped, re.I).group(1).strip().strip('"')
+            return self._postgres_table_info(table_name)
+
+        if "from sqlite_master" in lower:
+            return self._sqlite_master_query(stripped, params)
+
+        translated = self._translate_sql(stripped)
+        cursor = self._conn.cursor()
+        cursor.execute(translated, params)
+        lastrowid = None
+        if cursor.description:
+            rows = cursor.fetchall()
+            columns = [description.name for description in cursor.description]
+            if columns == ["id"] and rows and self._is_insert_returning_id(translated):
+                lastrowid = rows[0][0]
+            return PgCursor(rows=rows, columns=columns, lastrowid=lastrowid)
+        return PgCursor(cursor=cursor, lastrowid=lastrowid)
+
+    def _postgres_table_info(self, table_name):
+        cursor = self._conn.cursor()
+        cursor.execute("""
+            SELECT column_name,data_type,is_nullable,column_default
+            FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=%s
+            ORDER BY ordinal_position
+        """, (table_name,))
+        rows = []
+        for index, (name, data_type, nullable, default) in enumerate(cursor.fetchall()):
+            rows.append((index, name, data_type, 0 if nullable == "YES" else 1, default, 1 if default and "nextval" in default else 0))
+        return PgCursor(rows=rows, columns=["cid", "name", "type", "notnull", "dflt_value", "pk"])
+
+    def _sqlite_master_query(self, sql, params):
+        lower = sql.lower()
+        cursor = self._conn.cursor()
+        if "select name" in lower:
+            cursor.execute("""
+                SELECT table_name AS name
+                FROM information_schema.tables
+                WHERE table_schema='public' AND table_type='BASE TABLE'
+                ORDER BY table_name
+            """)
+            return PgCursor(rows=cursor.fetchall(), columns=["name"])
+        if "select 1" in lower:
+            table_name = params[0] if params else ""
+            cursor.execute("""
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema='public' AND table_name=%s
+                LIMIT 1
+            """, (table_name,))
+            return PgCursor(rows=cursor.fetchall(), columns=["?column?"])
+        return PgCursor(rows=[], columns=[])
+
+    def _translate_sql(self, sql):
+        sql = re.sub(r"\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b", "SERIAL PRIMARY KEY", sql, flags=re.I)
+        sql = re.sub(r"\s+REFERENCES\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)", "", sql, flags=re.I)
+        sql = re.sub(r"\bINSERT\s+OR\s+IGNORE\s+INTO\b", "INSERT INTO", sql, flags=re.I)
+        sql = re.sub(r"\bINSERT\s+OR\s+REPLACE\s+INTO\b", "INSERT INTO", sql, flags=re.I)
+        sql = re.sub(r"\bORDER\s+BY\s+rowid\b", "ORDER BY 1", sql, flags=re.I)
+        sql = self._append_conflict_clause(sql)
+        sql = self._append_returning_id(sql)
+        sql = sql.replace("?", "%s")
+        return sql
+
+    def _append_conflict_clause(self, sql):
+        lower = sql.lower()
+        if not lower.startswith("insert into") or " on conflict" in lower:
+            return sql
+        if "values" not in lower:
+            return sql
+        # Only add DO NOTHING for SQL that used SQLite's OR IGNORE/OR REPLACE before translation.
+        # These known statements all have natural unique keys/primary keys.
+        table_match = re.match(r"insert\s+into\s+([a-zA-Z_][a-zA-Z0-9_]*)", sql, re.I)
+        table = table_match.group(1) if table_match else ""
+        conflict_safe_tables = {"app_config", "workflow_config", "automation_jobs", "cleaner_offers", "payments", "archived_stripe_sessions"}
+        if table in conflict_safe_tables:
+            return sql + " ON CONFLICT DO NOTHING"
+        return sql
+
+    def _append_returning_id(self, sql):
+        lower = sql.lower()
+        if not lower.startswith("insert into") or " returning " in lower or " on conflict" in lower:
+            return sql
+        match = re.match(r"insert\s+into\s+([a-zA-Z_][a-zA-Z0-9_]*)", sql, re.I)
+        if match and match.group(1) in POSTGRES_ID_TABLES:
+            return sql + " RETURNING id"
+        return sql
+
+    def _is_insert_returning_id(self, sql):
+        return sql.lower().startswith("insert into") and " returning id" in sql.lower()
+
+
 def configured_database_path():
     selected, profiles = dashboard_database_profile()
     selected_path = Path(selected["path"]) if selected and selected.get("path") else DB
@@ -1105,6 +1327,8 @@ def configured_database_path():
 
 
 def connect():
+    if using_postgres():
+        return PostgresConnection(database_url())
     path = configured_database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -1179,7 +1403,7 @@ def sqlite_database_profile(path):
             for table_name in table_names:
                 safe_name = '"' + table_name.replace('"', '""') + '"'
                 profile["row_counts"][table_name] = conn.execute(f"SELECT COUNT(*) count FROM {safe_name}").fetchone()["count"]
-    except sqlite3.Error as error:
+    except DB_ERROR_TYPES as error:
         profile["error"] = str(error)
     return profile
 
@@ -1206,7 +1430,7 @@ def runtime_setting(key, fallback=""):
         with connect() as conn:
             row = conn.execute("SELECT value FROM app_config WHERE key=?", (key,)).fetchone()
         return row["value"] if row else fallback
-    except sqlite3.Error:
+    except DB_ERROR_TYPES:
         return fallback
 
 
@@ -1545,7 +1769,7 @@ class Handler(BaseHTTPRequestHandler):
                 with connect() as conn:
                     conn.execute("SELECT 1").fetchone()
                 return self.send_json({"status": "ready", "database": "ok"})
-            except sqlite3.Error:
+            except DB_ERROR_TYPES:
                 return self.send_json({"status": "not_ready", "database": "error"}, 503)
         if path == "/api/auth/me":
             session = self.current_session()
@@ -2059,7 +2283,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE bookings SET customer_id=? WHERE lower(email)=lower(?) AND customer_id IS NULL", (customer_id, email))
             token = self.create_session("customer", customer_id, email)
             return self.send_json({"ok": True, "role": "customer"}, 201, headers={"Set-Cookie": self.auth_cookie(token)})
-        except sqlite3.IntegrityError:
+        except DB_INTEGRITY_ERROR_TYPES:
             return self.send_json({"error": "A customer account already exists for that email."}, 409)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
@@ -2759,9 +2983,14 @@ class Handler(BaseHTTPRequestHandler):
                 })
             return rows
 
-        selected_database, discovered_databases = dashboard_database_profile()
-        dashboard_db_path = Path(selected_database["path"])
-        connector = (lambda: open_sqlite(dashboard_db_path, readonly=True)) if dashboard_db_path.exists() else connect
+        if using_postgres():
+            selected_database = {"path": "PostgreSQL DATABASE_URL", "exists": True, "size_bytes": None, "tables": [], "row_counts": {}, "error": None}
+            discovered_databases = [selected_database]
+            connector = connect
+        else:
+            selected_database, discovered_databases = dashboard_database_profile()
+            dashboard_db_path = Path(selected_database["path"])
+            connector = (lambda: open_sqlite(dashboard_db_path, readonly=True)) if dashboard_db_path.exists() else connect
         with connector() as conn:
             table_names = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
             table_meta = []
@@ -2873,7 +3102,7 @@ class Handler(BaseHTTPRequestHandler):
                     ORDER BY b.preferred_date,b.preferred_time LIMIT 10""", (today_s, tomorrow_s)).fetchall()]
             database_info = {
                 "path": selected_database["path"],
-                "write_path": str(DB),
+                "write_path": "PostgreSQL DATABASE_URL" if using_postgres() else str(DB),
                 "exists": selected_database["exists"],
                 "size_bytes": selected_database["size_bytes"],
                 "discovered_databases": discovered_databases,
@@ -2945,9 +3174,14 @@ class Handler(BaseHTTPRequestHandler):
 
         session = self.current_session()
         dashboard_payload = self.owner_dashboard_payload()
-        selected_database, discovered_databases = dashboard_database_profile()
-        diagnostics_db_path = Path(selected_database["path"])
-        connector = (lambda: open_sqlite(diagnostics_db_path, readonly=True)) if diagnostics_db_path.exists() else connect
+        if using_postgres():
+            selected_database = {"path": "PostgreSQL DATABASE_URL", "exists": True, "size_bytes": None, "tables": [], "row_counts": {}, "error": None}
+            discovered_databases = [selected_database]
+            connector = connect
+        else:
+            selected_database, discovered_databases = dashboard_database_profile()
+            diagnostics_db_path = Path(selected_database["path"])
+            connector = (lambda: open_sqlite(diagnostics_db_path, readonly=True)) if diagnostics_db_path.exists() else connect
         with connector() as conn:
             table_names = [row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
             row_counts = {}
@@ -2955,7 +3189,7 @@ class Handler(BaseHTTPRequestHandler):
                 row_counts[table_name] = conn.execute(f"SELECT COUNT(*) count FROM {quote_identifier(table_name)}").fetchone()["count"]
             diagnostics = {
                 "database_path": selected_database["path"],
-                "write_database_path": str(DB),
+                "write_database_path": "PostgreSQL DATABASE_URL" if using_postgres() else str(DB),
                 "database_exists": selected_database["exists"],
                 "email_provider": email_provider_diagnostics(),
                 "smtp_network": smtp_network_check("smtp.gmail.com", 587),
@@ -3185,7 +3419,7 @@ class Handler(BaseHTTPRequestHandler):
                     (name,phone,email,password_hash,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,created_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), hash_password(data["password"]), data["postcode"].strip().upper(), radius, rate, json.dumps(data["availability"]), json.dumps(data["services"]), data["dbs_status"], data["insurance_status"], datetime.now(timezone.utc).isoformat()))
             self.send_json({"ok": True, "id": cursor.lastrowid}, 201)
-        except sqlite3.IntegrityError:
+        except DB_INTEGRITY_ERROR_TYPES:
             self.send_json({"error": "An account already exists for that email address."}, 409)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, 400)
@@ -3272,7 +3506,7 @@ class Handler(BaseHTTPRequestHandler):
                             now
                         ))
                         imported += 1
-                    except (sqlite3.Error, ValueError) as error:
+                    except (DB_ERROR_TYPES + (ValueError,)) as error:
                         skipped.append({"row": index, "reason": str(error)})
             return self.send_json({"ok": True, "imported": imported, "skipped": skipped})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
@@ -3337,7 +3571,7 @@ class Handler(BaseHTTPRequestHandler):
                     WHERE id=?
                 """, (cleaner_id, datetime.now(timezone.utc).isoformat(), applicant_id))
             return self.send_json({"ok": True, "cleaner_id": cleaner_id}, 201)
-        except sqlite3.IntegrityError:
+        except DB_INTEGRITY_ERROR_TYPES:
             return self.send_json({"error": "A cleaner account already exists for that email address."}, 409)
         except (ValueError, TypeError, json.JSONDecodeError, IndexError) as error:
             return self.send_json({"error": str(error)}, 400)
