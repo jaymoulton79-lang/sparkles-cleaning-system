@@ -129,6 +129,12 @@ a.sp-button{
   border:1px solid var(--sp-line)!important;
   box-shadow:var(--sp-shadow-xs)!important;
 }
+.sp-button-ghost{
+  background:rgba(255,255,255,.86)!important;
+  color:var(--sp-primary)!important;
+  border:1px solid rgba(207,225,255,.95)!important;
+  box-shadow:var(--sp-shadow-sm)!important;
+}
 .sp-input,
 .sparkles-ds input,
 .sparkles-ds select,

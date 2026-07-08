@@ -17,6 +17,12 @@
 .quote-price small{display:block;margin-top:5px;color:var(--sp-muted,var(--muted));font-size:11px;font-weight:800}
 .pay-button{margin-top:18px}
 .payment-note{font-size:13px;color:var(--sp-muted,var(--muted));margin-top:14px}
+.alert.warning{
+  display:block;
+  color:#92400E;
+  background:#FFFBEB;
+  border:1px solid #FDE68A;
+}
 .payment-badge{display:inline-flex;align-items:center;margin-top:7px;padding:5px 10px;border-radius:999px;background:#EEF2F7;color:#526276;font-size:10px;font-weight:900}
 .payment-badge.due{background:#FEF3C7;color:#92400E}
 .payment-badge.paid{background:#DCFCE7;color:#166534}

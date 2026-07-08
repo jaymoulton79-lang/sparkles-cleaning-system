@@ -45,7 +45,7 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles OS <bookings@sparkles.local>")
+SMTP_FROM = os.environ.get("SMTP_FROM", "Sparkles Cleaning <bookings@sparkles.local>")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
 EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "").strip().lower()
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
@@ -88,7 +88,7 @@ DEFAULT_AI_PRICING = {
     "One-off clean": {"base": 7500, "bedroom_extra": 1600, "bathroom_extra": 1100}
 }
 DEFAULT_AI_RESPONSES = {
-    "greeting": "Thanks for contacting Sparkles OS. I can help with prices, availability and booking details.",
+    "greeting": "Thanks for contacting Sparkles Cleaning. I can help with prices, availability and booking details.",
     "booking_prompt": "To prepare an accurate quote, please share your name, phone, email, address, postcode, type of clean, bedrooms, bathrooms, preferred date and preferred time.",
     "handoff": "You can complete the secure booking form online and pay the 25% deposit to confirm."
 }
@@ -154,7 +154,7 @@ def email_from_address():
     return (
         runtime_setting("EMAIL_FROM", EMAIL_FROM)
         or runtime_setting("SMTP_FROM", SMTP_FROM)
-        or "Sparkles OS <bookings@sparkles.local>"
+        or "Sparkles Cleaning <bookings@sparkles.local>"
     ).strip()
 
 
@@ -787,7 +787,34 @@ def sync_paid_balance_invoices(conn):
     return synced
 
 
+def clean_customer_email_copy(booking_id, recipient, subject, body, html_body=None):
+    try:
+        with connect() as conn:
+            booking = conn.execute("SELECT name,email FROM bookings WHERE id=?", (booking_id,)).fetchone()
+    except Exception:
+        booking = None
+    if not booking or str(recipient or "").strip().lower() != str(booking["email"] or "").strip().lower():
+        return subject, body, html_body
+
+    customer_name = display_customer_name(booking["name"])
+    replacements = {
+        "Sparkles OS": "Sparkles Cleaning",
+        "Sparkles Cleaning Cambridge": "Sparkles Cleaning",
+        "Â£": "£",
+        "â€“": "-",
+        "â€™": "'",
+    }
+    for old, new in replacements.items():
+        subject = str(subject or "").replace(old, new)
+        body = str(body or "").replace(old, new)
+        html_body = html_body.replace(old, new) if html_body else html_body
+    body = re.sub(r"Hello\s+[^,\n]+,", f"Hello {customer_name},", body, count=1)
+    html_body = re.sub(r"Hello\s+[^,<\n]+,", f"Hello {html_lib.escape(customer_name)},", html_body, count=1) if html_body else html_body
+    return subject, body, html_body
+
+
 def send_workflow_email(booking_id, recipient, subject, body, html_body=None):
+    subject, body, html_body = clean_customer_email_copy(booking_id, recipient, subject, body, html_body)
     delivery_status, provider_id, error = "Preview", None, None
     config = smtp_config()
     if config["host"]:
@@ -829,12 +856,32 @@ def email_contact_address():
     )
 
 
+def public_brand_name():
+    company = (runtime_setting("COMPANY_NAME", "") or "").strip()
+    if not company or company.lower() in {"sparkles os", "sparkles cleaning cambridge"}:
+        return "Sparkles Cleaning"
+    return company
+
+
+def display_customer_name(name):
+    cleaned = str(name or "").strip()
+    if not cleaned:
+        return "there"
+    return " ".join(
+        "".join(
+            piece[:1].upper() + piece[1:].lower() if re.match(r"[A-Za-z]", piece) else piece
+            for piece in re.split(r"([\s-]+)", word)
+        )
+        for word in cleaned.split()
+    )
+
+
 def plain_rows(rows):
     return "\n".join(f"{label}: {value}" for label, value in rows)
 
 
 def sparkles_email_html(title, intro, rows, cta=None):
-    company = html_lib.escape(runtime_setting("COMPANY_NAME", "Sparkles OS"))
+    company = html_lib.escape(public_brand_name())
     title_html = html_lib.escape(title)
     intro_html = html_lib.escape(intro).replace("\n", "<br>")
     rows_html = "".join(
@@ -875,17 +922,15 @@ def booking_email_rows(booking, deposit_paid=None):
     if deposit_paid is None:
         payment_state = str(booking["payment_status"] or booking["status"] or "").strip().lower()
         deposit_paid = payment_state in {"deposit paid", "paid in full"}
-    deposit_paid_amount = booking["deposit_amount"] if deposit_paid else 0
-    deposit_label = money_pounds(deposit_paid_amount)
-    if not deposit_paid:
-        deposit_label += " (not paid yet)"
+    deposit_label = money_pounds(booking["deposit_amount"])
+    deposit_row_label = "Deposit paid" if deposit_paid else "Deposit due"
     return [
         ("Booking reference", booking["reference"]),
         ("Date", booking["preferred_date"]),
         ("Time", booking["preferred_time"]),
         ("Address", f"{booking['address']}, {booking['postcode']}"),
         ("Service", booking["clean_type"]),
-        ("Deposit paid", deposit_label),
+        (deposit_row_label, deposit_label),
         ("Balance due", money_pounds(booking["balance_amount"])),
     ]
 
@@ -898,8 +943,9 @@ def send_booking_confirmation_email(booking_id, deposit_paid=None, intro=None):
     deposit_is_paid = bool(deposit_paid) if deposit_paid is not None else None
     rows = booking_email_rows(booking, deposit_is_paid)
     subject = f"Booking confirmation – {booking['reference']}"
-    intro = intro or f"Hello {booking['name']}, thanks for booking with Sparkles OS. Smiles Come Standard. Here are your booking details."
-    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles OS"
+    customer_name = display_customer_name(booking["name"])
+    intro = intro or f"Hello {customer_name}, thanks for booking with Sparkles Cleaning. Smiles Come Standard. Here are your booking details."
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles Cleaning"
     html_body = sparkles_email_html("Booking confirmation", intro, rows)
     send_workflow_email(booking_id, booking["email"], subject, body, html_body)
     copy_to = email_contact_address()

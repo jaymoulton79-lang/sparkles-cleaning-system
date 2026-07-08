@@ -1,7 +1,49 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><title>Sparkles Customer Portal | Sparkles Cleaning Cambridge</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/cleaner.css"><link rel="stylesheet" href="/admin-bookings.css"><link rel="stylesheet" href="/payments.css"></head>
-<body><div class="topbar"></div><header><nav class="nav"><a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Cambridge<small>Customer Portal</small></span></a><a class="admin-link" href="/">Sparkles Booking Centre →</a></nav></header>
-<main class="payment-page" id="authPanel"><section class="payment-card auth-card"><h1>Sparkles Customer Portal</h1><p>Log in or create an account to see your bookings only.</p><div id="authAlert" class="alert"></div><form id="loginForm"><div class="field register-only"><label>Name</label><input name="name" autocomplete="name"></div><div class="field register-only"><label>Phone</label><input name="phone" autocomplete="tel"></div><div class="field"><label>Email</label><input name="email" type="email" autocomplete="email" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" autocomplete="current-password" required></div><button class="submit" type="submit">Log in</button></form><p class="fine"><button class="row-button" id="toggleMode">Create account instead</button> · <a href="/reset-password?role=customer">Forgot password?</a></p></section></main>
-<main class="dash" id="portal" hidden><div class="dash-head"><div><h1>My bookings</h1><p>Your Sparkles Cleaning Cambridge bookings and payment history.</p></div><button class="secondary" id="logout">Log out</button></div><section class="table-card" id="bookings"><div class="empty">Loading bookings…</div></section></main>
-<script src="/customer.js"></script></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Sparkles Customer Portal | Sparkles Cleaning</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/sparkles-design-system.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/admin-bookings.css">
+  <link rel="stylesheet" href="/payments.css">
+</head>
+<body class="sparkles-ds sparkles-customer-flow">
+  <header class="sp-nav">
+    <nav class="sp-nav-inner">
+      <a class="sp-brand" href="/">
+        <img class="sp-logo-img" src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo">
+        <span class="sp-wordmark">Sparkles Cleaning<small>Smiles Come Standard.</small></span>
+      </a>
+      <a class="sp-button sp-button-ghost" href="/">Booking Centre</a>
+    </nav>
+  </header>
+  <main class="payment-page" id="authPanel">
+    <section class="payment-card auth-card customer-flow-card">
+      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"></div>
+      <h1>Customer Portal</h1>
+      <p>Log in or create an account to see your Sparkles bookings and payments.</p>
+      <div id="authAlert" class="alert"></div>
+      <form id="loginForm">
+        <div class="field register-only"><label>Name</label><input name="name" autocomplete="name"></div>
+        <div class="field register-only"><label>Phone</label><input name="phone" autocomplete="tel"></div>
+        <div class="field"><label>Email</label><input name="email" type="email" autocomplete="email" required></div>
+        <div class="field"><label>Password</label><input name="password" type="password" minlength="8" autocomplete="current-password" required></div>
+        <button class="submit sp-button" type="submit">Log in</button>
+      </form>
+      <p class="fine"><button class="row-button" id="toggleMode">Create account instead</button> · <a href="/reset-password?role=customer">Forgot password?</a></p>
+    </section>
+  </main>
+  <main class="dash sparkles-customer-portal" id="portal" hidden>
+    <div class="dash-head">
+      <div><h1>My bookings</h1><p>Your Sparkles Cleaning bookings and payment history.</p></div>
+      <button class="secondary" id="logout">Log out</button>
+    </div>
+    <section class="table-card" id="bookings"><div class="empty">Loading bookings…</div></section>
+  </main>
+  <script src="/customer.js"></script>
+</body>
+</html>
