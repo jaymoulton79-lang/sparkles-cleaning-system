@@ -3754,6 +3754,10 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send_json({"error": "Only assigned jobs can be declined."}, 409)
                     conn.execute("UPDATE bookings SET status='New', cleaner_id=NULL, assigned_at=NULL, declined_at=?, cleaner_notes=CASE WHEN ?<>'' THEN ? ELSE cleaner_notes END WHERE id=?", (now, data.get("notes", "").strip(), data.get("notes", "").strip(), booking_id))
                     event, detail, status = "Job declined", f"{cleaner_name} declined the job; booking returned to New for reassignment", "New"
+                elif action == "on_way":
+                    if booking["status"] not in ("Accepted", "In Progress"):
+                        return self.send_json({"error": "Only accepted jobs can be marked as on the way."}, 409)
+                    event, detail, status = "Cleaner on the way", f"{cleaner_name} marked themselves as on the way", booking["status"]
                 elif action == "start":
                     if booking["status"] not in ("Accepted", "In Progress"):
                         return self.send_json({"error": "Only accepted jobs can be started."}, 409)

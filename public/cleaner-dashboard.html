@@ -1,6 +1,39 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><title>Sparkles Cleaner Portal | Sparkles Cleaning Cambridge</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/cleaner.css"><link rel="stylesheet" href="/admin-bookings.css"></head>
-<body><div class="topbar"></div><header><nav class="nav"><a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Cambridge<small>Cleaner Portal</small></span></a><button class="secondary" id="logout">Log out</button></nav></header>
-<main class="dash"><div class="dash-head"><div><h1>My jobs</h1><p>Your Sparkles jobs, timings and customer details.</p></div></div><section class="table-card" id="jobs"><div class="empty">Loading jobs…</div></section></main>
-<script src="/cleaner-dashboard.js"></script></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Sparkles Cleaner Portal | Sparkles Cleaning</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/sparkles-design-system.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/admin-bookings.css">
+</head>
+<body class="sparkles-ds cleaner-portal-body">
+  <div class="topbar"></div>
+  <header class="sp-nav">
+    <nav class="sp-nav-inner">
+      <a class="sp-brand" href="/cleaner/dashboard">
+        <img class="sp-logo-img" src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo">
+        <span class="sp-wordmark">Sparkles Cleaning<small>Cleaner Portal</small></span>
+      </a>
+      <button class="sp-button sp-button-ghost" id="logout">Log out</button>
+    </nav>
+  </header>
+
+  <main class="dash cleaner-portal-main">
+    <section class="cleaner-portal-hero">
+      <p class="eyebrow">Sparkles Cleaner Portal</p>
+      <h1>Today's assigned jobs</h1>
+      <p>Accept jobs, view customer details, update progress and keep the owner timeline live. Smiles Come Standard.</p>
+    </section>
+
+    <section class="table-card cleaner-jobs-shell" id="jobs">
+      <div class="sp-loader"><div class="sp-spinner"></div><p>Loading your Sparkles jobs...</p></div>
+    </section>
+  </main>
+
+  <script src="/cleaner-dashboard.js?v=20260709-cleaner-portal"></script>
+</body>
+</html>
