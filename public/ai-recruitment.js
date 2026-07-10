@@ -6,6 +6,7 @@ const esc = value => {
 
 let latestCopy = '';
 let latestShort = '';
+let latestPlan = '';
 
 async function copyText(text, button){
   await navigator.clipboard.writeText(text);
@@ -23,13 +24,36 @@ function renderStats(data){
   document.querySelector('#recruitmentStats').innerHTML = `
     <div><span>Total applicants</span><strong>${counts.total || 0}</strong></div>
     <div><span>Recommended</span><strong>${counts.recommended || 0}</strong></div>
-    <div><span>Maybe</span><strong>${counts.maybe || 0}</strong></div>
+    <div><span>Active cleaners</span><strong>${counts.active_cleaners || 0}</strong></div>
     <div><span>Needs review</span><strong>${counts.needs_review || 0}</strong></div>
   `;
   const sources = Object.entries(data.sources || {});
   document.querySelector('#sourceBreakdown').innerHTML = sources.length
     ? sources.map(([source,count]) => `<div><span>${esc(source)}</span><strong>${count} applicant${count===1?'':'s'}</strong></div>`).join('')
     : '<div class="empty-mini">No applicant sources yet.</div>';
+}
+
+async function sendFollowUp(applicantId, template, button){
+  const old = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Sending...';
+  try{
+    const response = await fetch(`/api/ai-recruitment/applicants/${applicantId}/follow-up`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({template})
+    });
+    const data = await response.json();
+    if(!response.ok) throw new Error(data.error || 'Could not send follow-up.');
+    button.textContent = 'Sent';
+    await loadRecruitment();
+  }catch(error){
+    button.textContent = 'Failed';
+    alert(error.message);
+    setTimeout(()=>button.textContent=old, 1400);
+  }finally{
+    button.disabled = false;
+  }
 }
 
 function renderShortlist(applicants){
@@ -43,6 +67,7 @@ function renderShortlist(applicants){
     const recClass = recommendationClass(applicant.recommendation);
     const reasons = applicant.reasons?.length ? applicant.reasons : ['Not enough positive signals yet'];
     const risks = applicant.risks?.length ? applicant.risks : ['No major risks flagged'];
+    const isAdded = applicant.recommendation === 'Already added';
     return `<article class="shortlist-card ${recClass}">
       <div class="shortlist-head">
         <div>
@@ -53,6 +78,7 @@ function renderShortlist(applicants){
       </div>
       <span class="recommendation ${recClass}">${esc(applicant.recommendation)}</span>
       <p><strong>${esc(applicant.postcode || 'No postcode')}</strong> · ${Number(applicant.travel_radius||0)} mile radius · £${Number(applicant.hourly_rate||0).toFixed(2)}/hr</p>
+      <p><strong>Status:</strong> ${esc(applicant.status || 'New')} · <strong>Source:</strong> ${esc(applicant.source || 'Unknown')}</p>
       <p><strong>Availability:</strong> ${esc((applicant.availability||[]).join(', ') || 'Not supplied')}</p>
       <p><strong>Services:</strong> ${esc((applicant.services||[]).join(', ') || 'Not supplied')}</p>
       <div>
@@ -64,8 +90,9 @@ function renderShortlist(applicants){
         <ul class="risk-list">${risks.map(risk=>`<li>${esc(risk)}</li>`).join('')}</ul>
       </div>
       <div class="shortlist-actions">
-        <a class="secondary" href="/admin/cleaner-applicants">Open applicant list</a>
-        <a class="secondary" href="mailto:${esc(applicant.email)}">Email</a>
+        <button class="secondary" ${isAdded ? 'disabled' : ''} onclick="sendFollowUp(${Number(applicant.id)},'shortlist',this)">Send next-step email</button>
+        <button class="secondary" ${isAdded ? 'disabled' : ''} onclick="sendFollowUp(${Number(applicant.id)},'missing',this)">Ask for missing details</button>
+        <a class="secondary" href="/admin/cleaner-applicants">Approve / review</a>
       </div>
     </article>`;
   }).join('');
@@ -81,6 +108,46 @@ async function loadRecruitment(){
   renderStats(data);
   renderShortlist(data.applicants || []);
 }
+
+document.querySelector('#autopilotForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const output = document.querySelector('#autopilotOutput');
+  output.textContent = 'Creating autopilot plan...';
+  const payload = Object.fromEntries(new FormData(event.target));
+  const response = await fetch('/api/ai-recruitment/autopilot-plan', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if(!response.ok){
+    output.textContent = data.error || 'Could not create autopilot plan.';
+    return;
+  }
+  latestPlan = [
+    `Recruitment area: ${data.area}`,
+    `Target applicants: ${data.target}`,
+    '',
+    ...data.weekly_plan.map(item => `Day ${item.day}: ${item.channel}\n${item.action}\nGoal: ${item.goal}\nApply link: ${item.apply_link}`),
+    '',
+    'Checklist:',
+    ...data.checklist.map(item => `- ${item}`)
+  ].join('\n\n');
+  output.innerHTML = `
+    <h3>Weekly cleaner recruitment plan</h3>
+    <div class="plan-list">
+      ${data.weekly_plan.map(item => `<div>
+        <strong>Day ${item.day}: ${esc(item.channel)}</strong>
+        <p>${esc(item.action)}</p>
+        <p><strong>Goal:</strong> ${esc(item.goal)}</p>
+        <p><strong>Tracked link:</strong> <a href="${esc(item.apply_link)}" target="_blank">${esc(item.apply_link)}</a></p>
+      </div>`).join('')}
+    </div>
+    <div class="campaign-actions">
+      <button class="secondary" onclick="copyText(latestPlan,this)">Copy full plan</button>
+    </div>
+  `;
+});
 
 document.querySelector('#campaignForm').addEventListener('submit', async event => {
   event.preventDefault();

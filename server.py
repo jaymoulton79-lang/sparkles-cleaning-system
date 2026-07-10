@@ -2126,6 +2126,14 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.ai_recruitment_campaign_copy()
+        if path == "/api/ai-recruitment/autopilot-plan":
+            if not self.require_admin():
+                return
+            return self.ai_recruitment_autopilot_plan()
+        if path.startswith("/api/ai-recruitment/applicants/") and path.endswith("/follow-up"):
+            if not self.require_admin():
+                return
+            return self.ai_recruitment_follow_up(path)
         if path == "/api/receptionist/start":
             return self.receptionist_start()
         if path == "/api/receptionist/message":
@@ -3678,6 +3686,7 @@ class Handler(BaseHTTPRequestHandler):
     def ai_recruitment_summary(self):
         with connect() as conn:
             rows = conn.execute("SELECT * FROM cleaner_applicants ORDER BY id DESC").fetchall()
+            active_cleaners = conn.execute("SELECT COUNT(*) AS total FROM cleaners WHERE COALESCE(active,1)=1").fetchone()
         scored = []
         for row in rows:
             item = dict(row)
@@ -3691,6 +3700,7 @@ class Handler(BaseHTTPRequestHandler):
             "maybe": len([a for a in scored if a["recommendation"] == "Maybe"]),
             "needs_review": len([a for a in scored if a["recommendation"] == "Needs review"]),
             "already_added": len([a for a in scored if a["recommendation"] == "Already added"]),
+            "active_cleaners": int(active_cleaners["total"] if active_cleaners else 0),
         }
         source_counts = {}
         for applicant in scored:
@@ -3733,6 +3743,103 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"title": title, "body": body, "short": short, "apply_link": apply_link, "channel": channel})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error) or "Could not generate recruitment copy."}, 400)
+
+    def ai_recruitment_autopilot_plan(self):
+        try:
+            data = self.read_json()
+            area = str(data.get("area") or "Cambridge and surrounding areas").strip()
+            target = int(data.get("target") or 10)
+            channels = data.get("channels") or ["Facebook", "Indeed", "WhatsApp", "Gumtree"]
+            if isinstance(channels, str):
+                channels = [part.strip() for part in channels.split(",") if part.strip()]
+            channels = channels[:6] or ["Facebook", "Indeed", "WhatsApp", "Gumtree"]
+            daily_target = max(1, round(target / 7))
+            apply_links = {
+                channel: f"{public_url().rstrip('/')}/cleaner/apply?source={urllib.parse.quote(channel.lower().replace(' ', '-'))}"
+                for channel in channels
+            }
+            checklist = [
+                "Post the generated advert in 2-3 local cleaning/community groups.",
+                "Add the tracked application link to every post.",
+                "Check new applicants daily in the AI Recruitment shortlist.",
+                "Send follow-up emails to promising applicants within 24 hours.",
+                "Approve only applicants with clear contact details, availability and suitable checks.",
+                "Keep rejected or incomplete applicants in Needs review until they provide missing details."
+            ]
+            plan = []
+            for index, channel in enumerate(channels, start=1):
+                plan.append({
+                    "day": index,
+                    "channel": channel,
+                    "action": f"Publish cleaner recruitment advert for {area}",
+                    "goal": f"Attract {daily_target}+ cleaner applicant{'s' if daily_target != 1 else ''}",
+                    "apply_link": apply_links[channel],
+                    "safe_note": "Use this link in your own posts or paid adverts. Do not scrape or message private profiles without consent."
+                })
+            return self.send_json({
+                "area": area,
+                "target": target,
+                "channels": channels,
+                "apply_links": apply_links,
+                "weekly_plan": plan,
+                "checklist": checklist,
+                "message": "Autopilot plan generated. Share the tracked links through your own adverts, posts and referrals."
+            })
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error) or "Could not generate autopilot plan."}, 400)
+
+    def ai_recruitment_follow_up(self, path):
+        try:
+            applicant_id = int(path.split("/")[4])
+            data = self.read_json()
+            template = str(data.get("template") or "shortlist").strip().lower()
+            with connect() as conn:
+                applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+                if not applicant:
+                    return self.send_json({"error": "Applicant not found."}, 404)
+            name = display_customer_name(applicant["name"])
+            apply_source = applicant["source"] or "recruitment campaign"
+            portal_link = f"{public_url().rstrip('/')}/cleaner/apply?source=follow-up"
+            if template == "missing":
+                subject = "A quick question about your Sparkles cleaner application"
+                intro = f"Hi {name}, thanks for applying to work with Sparkles Cleaning Agency through {apply_source}. We'd love to review your application properly, but we need a few extra details first."
+                rows = [
+                    ("What we need", "Your availability, services offered, DBS status, insurance status and preferred travel radius"),
+                    ("Update link", portal_link),
+                ]
+                body = f"{intro}\n\nPlease reply with the missing details or submit the form again here:\n{portal_link}\n\nSmiles Come Standard.\nSparkles Cleaning Agency"
+            else:
+                subject = "Your Sparkles cleaner application"
+                intro = f"Hi {name}, thanks for applying to work with Sparkles Cleaning Agency. Your application looks promising and we'd like to move you to the next step."
+                rows = [
+                    ("Next step", "Please reply confirming your availability, preferred areas, DBS status and insurance status."),
+                    ("Application source", apply_source),
+                ]
+                body = f"{intro}\n\nPlease reply confirming your availability, preferred areas, DBS status and insurance status.\n\nSmiles Come Standard.\nSparkles Cleaning Agency"
+            html_body = sparkles_email_html("Cleaner application", intro, rows)
+            message = EmailMessage()
+            message["From"] = email_from_address()
+            message["To"] = applicant["email"]
+            message["Subject"] = subject
+            message.set_content(body)
+            message.add_alternative(html_body, subtype="html")
+            deliver_email_message(message)
+            now = datetime.now(timezone.utc).isoformat()
+            note = f"{applicant['notes'] or ''}\n[{now}] AI Recruitment follow-up sent: {template}".strip()
+            with connect() as conn:
+                conn.execute("""
+                    UPDATE cleaner_applicants
+                    SET status=CASE WHEN status='New' THEN 'Contacted' ELSE status END,
+                        notes=?,
+                        updated_at=?
+                    WHERE id=?
+                """, (note, now, applicant_id))
+            return self.send_json({"ok": True, "status": "Sent", "recipient": applicant["email"], "subject": subject})
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError) as error:
+            return self.send_json({"error": str(error) or "Could not send applicant follow-up."}, 400)
+        except Exception as error:
+            logger.error(json.dumps({"ai_recruitment_follow_up": "failed", "error": str(error)}))
+            return self.send_json({"error": str(error) or "Could not send applicant follow-up."}, 502)
 
     def import_cleaner_applicants(self):
         try:

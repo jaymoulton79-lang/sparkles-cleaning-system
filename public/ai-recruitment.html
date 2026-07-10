@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>AI Recruitment Manager | Sparkles Cleaning Agency</title>
+  <title>AI Recruitment Autopilot | Sparkles Cleaning Agency</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/recruitment.css">
   <link rel="stylesheet" href="/ai-recruitment.css">
@@ -30,14 +30,36 @@
   <main class="ai-recruitment-page">
     <section class="ai-recruitment-hero">
       <div>
-        <p class="eyebrow">Sparkles AI Recruitment Manager</p>
+        <p class="eyebrow">Sparkles AI Recruitment Autopilot</p>
         <h1>Build your cleaner pool without the overwhelm.</h1>
-        <p>Generate recruitment adverts, track applicant sources, score cleaner applicants and decide who is ready to approve.</p>
+        <p>Generate cleaner recruitment campaigns, track every applicant source, follow up automatically, score applicants and approve the best cleaners into your database.</p>
       </div>
       <a class="primary-small" href="/admin/cleaner-applicants">Review applicants</a>
     </section>
 
+    <section class="autopilot-note">
+      <strong>Safe autopilot:</strong> this does not scrape private Facebook, Indeed or WhatsApp profiles. It creates tracked adverts and application links so cleaners apply properly and consent to joining your database.
+    </section>
+
     <section class="ai-recruitment-grid">
+      <article class="ai-panel">
+        <h2>Autopilot campaign plan</h2>
+        <p>Tell Sparkles where you want cleaners and how many you want to attract. It will create a safe recruitment plan and tracking links.</p>
+        <form id="autopilotForm" class="campaign-form">
+          <label>Recruitment area
+            <input name="area" value="Cambridge and surrounding areas">
+          </label>
+          <label>Target applicants this week
+            <input name="target" type="number" min="1" value="10">
+          </label>
+          <label>Channels
+            <input name="channels" value="Facebook, Indeed, WhatsApp, Gumtree">
+          </label>
+          <button class="secondary" type="submit">Create autopilot plan</button>
+        </form>
+        <div id="autopilotOutput" class="campaign-output empty-mini">Your weekly recruitment plan will appear here.</div>
+      </article>
+
       <article class="ai-panel">
         <h2>Campaign generator</h2>
         <p>Create safe recruitment copy for Facebook, WhatsApp, Indeed, Gumtree or referrals.</p>
@@ -65,17 +87,32 @@
         </form>
         <div id="campaignOutput" class="campaign-output empty-mini">Generated adverts will appear here.</div>
       </article>
+    </section>
 
+    <section class="ai-recruitment-grid">
       <article class="ai-panel">
         <h2>Recruitment overview</h2>
         <div class="ai-stats" id="recruitmentStats">
           <div><span>Total applicants</span><strong>—</strong></div>
           <div><span>Recommended</span><strong>—</strong></div>
-          <div><span>Maybe</span><strong>—</strong></div>
+          <div><span>Active cleaners</span><strong>—</strong></div>
           <div><span>Needs review</span><strong>—</strong></div>
         </div>
         <h3>Applicant sources</h3>
         <div id="sourceBreakdown" class="source-breakdown empty-mini">Loading sources…</div>
+      </article>
+
+      <article class="ai-panel">
+        <h2>Cleaner onboarding checklist</h2>
+        <p>Use this before approving anyone into the live cleaner database.</p>
+        <ul class="autopilot-checklist">
+          <li>Contact details complete</li>
+          <li>Availability and services supplied</li>
+          <li>Travel radius makes sense</li>
+          <li>DBS status checked</li>
+          <li>Insurance status checked</li>
+          <li>Password/login setup completed after approval</li>
+        </ul>
       </article>
     </section>
 
