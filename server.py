@@ -764,25 +764,6 @@ def sync_paid_balance_invoices(conn):
             invoice = stripe_request(f"invoices/{row['stripe_invoice_id']}", None, "GET")
             if invoice.get("paid") or invoice.get("status") == "paid":
                 booking_id, amount = record_invoice_payment(conn, invoice)
-                automation.timeline(booking_id, "Final payment synced", f"Stripe invoice already paid: £{amount/100:.2f}")
-                automation.enqueue(booking_id, "send_review")
-                synced.append(booking_id)
-        except Exception as exc:
-            logger.error(json.dumps({"stripe_invoice_sync": "failed", "booking_id": row["id"], "invoice_id": row["stripe_invoice_id"], "error": str(exc)}))
-    return synced
-
-
-def sync_paid_balance_invoices(conn):
-    if not stripe_configured():
-        return []
-    rows = conn.execute("""SELECT id,stripe_invoice_id FROM bookings
-        WHERE payment_status='Balance Due' AND stripe_invoice_id IS NOT NULL AND stripe_invoice_id<>''""").fetchall()
-    synced = []
-    for row in rows:
-        try:
-            invoice = stripe_request(f"invoices/{row['stripe_invoice_id']}", None, "GET")
-            if invoice.get("paid") or invoice.get("status") == "paid":
-                booking_id, amount = record_invoice_payment(conn, invoice)
                 try:
                     automation.timeline(booking_id, "Final payment synced", f"Stripe invoice already paid: £{amount/100:.2f}")
                     automation.enqueue(booking_id, "send_review")
