@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>AI Recruitment Manager | Sparkles Cleaning Agency</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/recruitment.css">
+  <link rel="stylesheet" href="/ai-recruitment.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header>
+    <nav class="nav">
+      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Agency<small>Automated cleaning agency</small></span></a>
+      <div class="admin-nav">
+        <a href="/admin/dashboard">Sparkles Owner Command Centre</a>
+        <a href="/admin/bookings">Bookings</a>
+        <a href="/admin/calendar">Calendar</a>
+        <a href="/admin/cleaners">Cleaners</a>
+        <a href="/admin/cleaner-applicants">Applicants</a>
+        <a class="active" href="/admin/ai-recruitment">AI Recruitment</a>
+        <a href="/admin/automations">Automations</a>
+        <a href="/admin/ai-office">Sparkles AI</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="ai-recruitment-page">
+    <section class="ai-recruitment-hero">
+      <div>
+        <p class="eyebrow">Sparkles AI Recruitment Manager</p>
+        <h1>Build your cleaner pool without the overwhelm.</h1>
+        <p>Generate recruitment adverts, track applicant sources, score cleaner applicants and decide who is ready to approve.</p>
+      </div>
+      <a class="primary-small" href="/admin/cleaner-applicants">Review applicants</a>
+    </section>
+
+    <section class="ai-recruitment-grid">
+      <article class="ai-panel">
+        <h2>Campaign generator</h2>
+        <p>Create safe recruitment copy for Facebook, WhatsApp, Indeed, Gumtree or referrals.</p>
+        <form id="campaignForm" class="campaign-form">
+          <label>Channel
+            <select name="channel">
+              <option>Facebook</option>
+              <option>WhatsApp</option>
+              <option>Indeed</option>
+              <option>Gumtree</option>
+              <option>Nextdoor</option>
+              <option>Referral</option>
+            </select>
+          </label>
+          <label>Area
+            <input name="area" value="Cambridge and surrounding areas">
+          </label>
+          <label>Pay / rate wording
+            <input name="rate" value="competitive self-employed rates">
+          </label>
+          <label>Benefits
+            <textarea name="benefits" rows="3">choose your availability, travel radius and preferred cleaning services</textarea>
+          </label>
+          <button class="secondary" type="submit">Generate advert</button>
+        </form>
+        <div id="campaignOutput" class="campaign-output empty-mini">Generated adverts will appear here.</div>
+      </article>
+
+      <article class="ai-panel">
+        <h2>Recruitment overview</h2>
+        <div class="ai-stats" id="recruitmentStats">
+          <div><span>Total applicants</span><strong>—</strong></div>
+          <div><span>Recommended</span><strong>—</strong></div>
+          <div><span>Maybe</span><strong>—</strong></div>
+          <div><span>Needs review</span><strong>—</strong></div>
+        </div>
+        <h3>Applicant sources</h3>
+        <div id="sourceBreakdown" class="source-breakdown empty-mini">Loading sources…</div>
+      </article>
+    </section>
+
+    <section class="ai-panel">
+      <div class="panel-head">
+        <div>
+          <h2>AI applicant shortlist</h2>
+          <p>Scores are guidance only. Always check DBS, insurance, references and fit before approving.</p>
+        </div>
+        <button class="secondary" id="refreshRecruitment">Refresh</button>
+      </div>
+      <div id="shortlist" class="shortlist-grid"><div class="empty card-wide">Loading applicant scores…</div></div>
+    </section>
+  </main>
+
+  <script src="/ai-recruitment.js"></script>
+</body>
+</html>

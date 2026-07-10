@@ -1940,6 +1940,10 @@ class Handler(BaseHTTPRequestHandler):
                 item["services"] = json.loads(item.get("services") or "[]")
                 applicants.append(item)
             return self.send_json(applicants)
+        if path == "/api/ai-recruitment/summary":
+            if not self.require_admin():
+                return
+            return self.ai_recruitment_summary()
         if path.startswith("/api/bookings/") and path.endswith("/matches"):
             if not self.require_admin():
                 return
@@ -2071,11 +2075,15 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "receptionist-admin.html")
+        if path in ("/admin/ai-recruitment", "/admin/ai-recruitment/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "ai-recruitment.html")
         if path in ("/admin/setup", "/admin/setup/"):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/setup.html", "/admin-diagnostics.html"}
+        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/ai-recruitment.html", "/setup.html", "/admin-diagnostics.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -2114,6 +2122,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.save_ai_settings()
         if path == "/api/ai-office/respond":
             return self.ai_office_reply()
+        if path == "/api/ai-recruitment/campaign-copy":
+            if not self.require_admin():
+                return
+            return self.ai_recruitment_campaign_copy()
         if path == "/api/receptionist/start":
             return self.receptionist_start()
         if path == "/api/receptionist/message":
@@ -3561,6 +3573,166 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "id": cursor.lastrowid}, 201)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
+
+    def score_cleaner_applicant(self, applicant):
+        availability = json.loads(applicant.get("availability") or "[]") if isinstance(applicant.get("availability"), str) else applicant.get("availability") or []
+        services = json.loads(applicant.get("services") or "[]") if isinstance(applicant.get("services"), str) else applicant.get("services") or []
+        dbs = str(applicant.get("dbs_status") or "Unknown").lower()
+        insurance = str(applicant.get("insurance_status") or "Unknown").lower()
+        experience = str(applicant.get("experience") or "").strip()
+        radius = float(applicant.get("travel_radius") or 0)
+        rate = float(applicant.get("hourly_rate") or 0)
+        score = 0
+        reasons = []
+        risks = []
+
+        if applicant.get("name") and applicant.get("phone") and applicant.get("email") and applicant.get("postcode"):
+            score += 10
+            reasons.append("Complete contact details")
+        else:
+            risks.append("Missing contact details")
+
+        if len(availability) >= 5:
+            score += 20
+            reasons.append("Strong weekly availability")
+        elif len(availability) >= 3:
+            score += 14
+            reasons.append("Good availability")
+        elif availability:
+            score += 7
+            reasons.append("Some availability")
+        else:
+            risks.append("No availability supplied")
+
+        if {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"}.intersection(set(availability)):
+            score += 5
+
+        if len(services) >= 3:
+            score += 20
+            reasons.append("Covers multiple clean types")
+        elif len(services) >= 2:
+            score += 14
+            reasons.append("Covers more than one service")
+        elif services:
+            score += 7
+            reasons.append("Covers one service")
+        else:
+            risks.append("No services supplied")
+
+        if "verified" in dbs:
+            score += 15
+            reasons.append("DBS verified")
+        elif "certificate" in dbs or "progress" in dbs:
+            score += 9
+            reasons.append("DBS available or in progress")
+        else:
+            risks.append("DBS not verified")
+
+        if "verified" in insurance:
+            score += 15
+            reasons.append("Insurance verified")
+        elif "policy" in insurance or "progress" in insurance:
+            score += 9
+            reasons.append("Insurance available or in progress")
+        else:
+            risks.append("Insurance not verified")
+
+        if radius >= 10:
+            score += 8
+            reasons.append("Useful travel radius")
+        elif radius >= 5:
+            score += 5
+
+        if 0 < rate <= 18:
+            score += 7
+            reasons.append("Competitive hourly rate")
+        elif 0 < rate <= 25:
+            score += 4
+        elif rate <= 0:
+            risks.append("No hourly rate supplied")
+
+        if experience:
+            score += 10
+            reasons.append("Experience notes supplied")
+        else:
+            risks.append("No experience notes")
+
+        score = max(0, min(100, int(score)))
+        if applicant.get("approved_cleaner_id") or applicant.get("status") == "Added as Cleaner":
+            recommendation = "Already added"
+        elif score >= 75 and not any("not verified" in risk.lower() for risk in risks):
+            recommendation = "Recommended"
+        elif score >= 55:
+            recommendation = "Maybe"
+        else:
+            recommendation = "Needs review"
+        return {
+            "score": score,
+            "recommendation": recommendation,
+            "reasons": reasons[:5],
+            "risks": risks[:5],
+            "availability": availability,
+            "services": services,
+        }
+
+    def ai_recruitment_summary(self):
+        with connect() as conn:
+            rows = conn.execute("SELECT * FROM cleaner_applicants ORDER BY id DESC").fetchall()
+        scored = []
+        for row in rows:
+            item = dict(row)
+            score = self.score_cleaner_applicant(item)
+            item.update(score)
+            item["password_hash"] = None
+            scored.append(item)
+        counts = {
+            "total": len(scored),
+            "recommended": len([a for a in scored if a["recommendation"] == "Recommended"]),
+            "maybe": len([a for a in scored if a["recommendation"] == "Maybe"]),
+            "needs_review": len([a for a in scored if a["recommendation"] == "Needs review"]),
+            "already_added": len([a for a in scored if a["recommendation"] == "Already added"]),
+        }
+        source_counts = {}
+        for applicant in scored:
+            source = applicant.get("source") or "Unknown"
+            source_counts[source] = source_counts.get(source, 0) + 1
+        return self.send_json({"counts": counts, "sources": source_counts, "applicants": scored})
+
+    def ai_recruitment_campaign_copy(self):
+        try:
+            data = self.read_json()
+            channel = str(data.get("channel") or "Facebook").strip()
+            area = str(data.get("area") or "your local area").strip()
+            rate = str(data.get("rate") or "competitive rates").strip()
+            benefits = str(data.get("benefits") or "choose your availability, travel area and services").strip()
+            source = channel.lower().replace(" ", "-")
+            apply_link = f"{public_url().rstrip('/')}/cleaner/apply?source={urllib.parse.quote(source)}"
+            title = "Self-employed Domestic Cleaner"
+            if channel.lower() in {"facebook", "whatsapp", "nextdoor"}:
+                body = (
+                    f"Sparkles Cleaning Agency is looking for reliable self-employed cleaners in {area}.\n\n"
+                    f"You can {benefits}. Pay: {rate}.\n\n"
+                    "Ideal applicants are reliable, friendly, experienced with home cleaning, and able to provide DBS/insurance details where available.\n\n"
+                    f"Apply here:\n{apply_link}"
+                )
+            else:
+                body = (
+                    f"{title}\n\n"
+                    f"Sparkles Cleaning Agency is recruiting reliable self-employed domestic cleaners in {area}.\n\n"
+                    "You will receive cleaning job opportunities based on your postcode, availability, travel radius and services offered.\n\n"
+                    f"Pay: {rate}.\n\n"
+                    "Requirements:\n"
+                    "- Cleaning experience preferred\n"
+                    "- Reliable and professional\n"
+                    "- Good communication\n"
+                    "- DBS certificate preferred\n"
+                    "- Public liability insurance preferred\n\n"
+                    f"Apply here:\n{apply_link}"
+                )
+            short = f"Sparkles Cleaning Agency is hiring cleaners in {area}. {benefits}. Apply here: {apply_link}"
+            return self.send_json({"title": title, "body": body, "short": short, "apply_link": apply_link, "channel": channel})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error) or "Could not generate recruitment copy."}, 400)
 
     def import_cleaner_applicants(self):
         try:

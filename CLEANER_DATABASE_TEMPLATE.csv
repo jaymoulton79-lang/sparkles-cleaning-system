@@ -1,0 +1,2 @@
+name,phone,email,postcode,travel_radius_miles,hourly_rate,availability,services_offered,dbs_status,insurance_status,notes
+Example Cleaner,07123456789,cleaner@example.com,CB1 2AB,10,16.00,"Monday;Tuesday;Wednesday;Thursday;Friday","Regular clean;Deep clean;One-off clean",Certificate available,Policy available,Replace this example row with a real cleaner
