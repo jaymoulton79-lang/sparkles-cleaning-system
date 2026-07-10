@@ -1408,7 +1408,7 @@ def perform_fresh_launch_reset():
         summary = {
             "database": "PostgreSQL DATABASE_URL" if using_postgres() else str(configured_database_path()),
             "bookings_archived": table_count(conn, "bookings", "archived_at IS NULL"),
-            "active_cleaners_deactivated": table_count(conn, "cleaners", "COALESCE(active,0)=1"),
+            "cleaner_accounts_removed": table_count(conn, "cleaners"),
             "payments_preserved": table_count(conn, "payments"),
             "config_preserved": True,
             "admin_login_preserved": True,
@@ -1418,17 +1418,17 @@ def perform_fresh_launch_reset():
         if table_exists(conn, "bookings"):
             conn.execute("""
                 UPDATE bookings
-                SET archived_at=?, archive_reason=?, is_test=1
+                SET archived_at=?, archive_reason=?, is_test=1, cleaner_id=NULL, assigned_at=NULL
                 WHERE archived_at IS NULL
             """, (now, archive_reason))
-        if table_exists(conn, "cleaners"):
-            conn.execute("UPDATE cleaners SET active=0")
         for table_name in clear_tables:
             if not table_exists(conn, table_name):
                 summary["cleared_tables"][table_name] = 0
                 continue
             summary["cleared_tables"][table_name] = table_count(conn, table_name)
             conn.execute(f"DELETE FROM {quote_identifier(table_name)}")
+        if table_exists(conn, "cleaners"):
+            conn.execute("DELETE FROM cleaners")
     return summary
 
 
