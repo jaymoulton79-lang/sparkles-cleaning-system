@@ -1,4 +1,4 @@
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const esc=v=>{const d=document.createElement('div');d.textContent=v ?? '';return d.innerHTML};
 const money=p=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((p||0)/100);
 let settings;
 

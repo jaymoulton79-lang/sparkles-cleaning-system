@@ -1,10 +1,10 @@
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const esc=v=>{const d=document.createElement('div');d.textContent=v ?? '';return d.innerHTML};
 const prettyDate=v=>new Date(`${v}T12:00:00`).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 const stamp=v=>v?new Date(v).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'-';
 const money=p=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((p||0)/100);
 const gallery=photos=>photos?.length?`<div class="photos">${photos.map(p=>`<a href="${esc(p.url)}" target="_blank"><img src="${esc(p.url)}" alt="${esc(p.name)}"></a>`).join('')}</div>`:'None uploaded';
 const paymentStatusClass=status=>status==='Deposit Paid'||status==='Paid in Full'?'paid':status==='Deposit Due'?'due':'';
-const jsArg=v=>JSON.stringify(String(v??''));
+const jsArg=v=>JSON.stringify(String(v ?? ''));
 let bookings=[];
 
 async function load(){

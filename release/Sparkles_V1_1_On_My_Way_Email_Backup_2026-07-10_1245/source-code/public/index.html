@@ -1,0 +1,75 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="description" content="Book a trusted home clean with Sparkles Cleaning.">
+  <title>Sparkles Booking Centre | Sparkles Cleaning</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/sparkles-design-system.css">
+  <link rel="stylesheet" href="/receptionist-widget.css">
+</head>
+<body class="sparkles-ds sparkles-booking-page">
+  <div class="topbar"></div>
+  <header class="sp-nav">
+    <nav class="sp-nav-inner">
+      <a class="sp-wordmark" href="/"><img class="sp-logo-img" src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"><span>Sparkles Cleaning<small>Smiles Come Standard.</small></span></a>
+      <a class="sp-nav-link" href="/admin">Sign in →</a>
+    </nav>
+  </header>
+  <main class="hero">
+    <section class="intro">
+      <div class="sp-kicker">Sparkles Booking Centre</div>
+      <h1><span>Professional cleaning,</span><span>booked in under 60 seconds.</span></h1>
+      <p>Secure online booking. Instant quote. 25% deposit by Stripe. Smiles Come Standard.</p>
+      <div class="trust-badges trust-card-grid" aria-label="Booking trust badges">
+        <article class="trust-card"><span class="trust-icon">🔒</span><strong>Secure Stripe Payments</strong></article>
+        <article class="trust-card"><span class="trust-icon">✓</span><strong>Fully Insured</strong></article>
+        <article class="trust-card"><span class="trust-icon">✦</span><strong>Professional Cleaning Teams</strong></article>
+        <article class="trust-card"><span class="trust-icon">★</span><strong>5★ Rated Service</strong></article>
+      </div>
+      <div class="promise">
+        <div><span class="tick">✓</span>Secure Stripe deposit</div>
+        <div><span class="tick">✓</span>Local, friendly Cambridge team</div>
+        <div><span class="tick">✓</span>We’ll confirm everything with you</div>
+      </div>
+    </section>
+    <section class="card sp-card" id="formCard">
+      <div class="card-head">
+        <div><h2>Request your Sparkles clean</h2></div>
+        <div class="step">Takes 2–3 minutes</div>
+      </div>
+      <div id="alert" class="alert"></div>
+      <form id="bookingForm" enctype="multipart/form-data">
+        <div class="section-title">Your details</div>
+        <div class="grid">
+          <div class="field"><label for="name">Full name <span>*</span></label><input id="name" name="name" autocomplete="name" required placeholder="e.g. Amelia Hart"></div>
+          <div class="field"><label for="phone">Phone number <span>*</span></label><input id="phone" name="phone" type="tel" autocomplete="tel" required placeholder="07123 456789"></div>
+          <div class="field full"><label for="email">Email address <span>*</span></label><input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
+        </div>
+        <div class="section-title">Your home</div>
+        <div class="grid">
+          <div class="field full"><label for="address">Address <span>*</span></label><input id="address" name="address" autocomplete="street-address" required placeholder="House number and street"></div>
+          <div class="field"><label for="postcode">Postcode <span>*</span></label><input id="postcode" name="postcode" autocomplete="postal-code" required placeholder="CB1 2AB"></div>
+          <div class="field"><label for="clean_type">Type of clean <span>*</span></label><select id="clean_type" name="clean_type" required><option value="">Choose one</option><option>Regular clean</option><option>Deep clean</option><option>End of tenancy</option><option>One-off clean</option></select></div>
+          <div class="field"><label for="bedrooms">Bedrooms <span>*</span></label><select id="bedrooms" name="bedrooms" required><option value="">Select</option><option value="0">Studio / none</option><option value="1">1 bedroom</option><option value="2">2 bedrooms</option><option value="3">3 bedrooms</option><option value="4">4 bedrooms</option><option value="5">5+ bedrooms</option></select></div>
+          <div class="field"><label for="bathrooms">Bathrooms <span>*</span></label><select id="bathrooms" name="bathrooms" required><option value="">Select</option><option value="1">1 bathroom</option><option value="2">2 bathrooms</option><option value="3">3 bathrooms</option><option value="4">4+ bathrooms</option></select></div>
+        </div>
+        <div class="section-title">When & what</div>
+        <div class="grid">
+          <div class="field"><label for="preferred_date">Preferred date <span>*</span></label><input id="preferred_date" name="preferred_date" type="date" required></div>
+          <div class="field"><label for="preferred_time">Preferred time <span>*</span></label><select id="preferred_time" name="preferred_time" required><option value="">Choose a time</option><option>Morning (8am–12pm)</option><option>Afternoon (12pm–4pm)</option><option>Late afternoon (4pm–6pm)</option><option>Flexible</option></select></div>
+          <div class="field full"><label for="notes">Anything else we should know?</label><textarea id="notes" name="notes" placeholder="Tell us about access, pets, priority rooms, or anything that will help us prepare."></textarea></div>
+          <div class="field full"><label>Photos <small>(optional)</small></label><label class="upload" for="photos"><strong>Add photos</strong> of the rooms or areas to clean<br>JPG, PNG or WebP · up to 5MB each<input id="photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><div id="files" class="files"></div></div>
+        </div>
+        <button class="submit sp-button" id="submit" type="submit">Book your clean</button>
+        <p class="fine">Your booking remains Deposit Due until Stripe confirms payment.</p>
+      </form>
+    </section>
+  </main>
+  <footer>© 2026 Sparkles Cleaning · Smiles Come Standard.</footer>
+  <script src="/receptionist-widget.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

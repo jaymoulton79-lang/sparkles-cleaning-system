@@ -1,0 +1,31 @@
+services:
+  sparkles:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: INFO
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN:?Set ADMIN_SETUP_TOKEN in .env}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Sparkles Cleaning <bookings@example.com>}
+      REVIEW_URL: ${REVIEW_URL:-}
+    volumes:
+      - sparkles_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  sparkles_data:

@@ -1,4 +1,4 @@
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const esc=v=>{const d=document.createElement('div');d.textContent=v ?? '';return d.innerHTML};
 const money=p=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((p||0)/100);
 const prettyDate=v=>new Date(`${v}T12:00:00`).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 const metricGrid=document.querySelector('#metricGrid');
@@ -21,7 +21,7 @@ function formatMetric(type,value){
   if(type==='money')return money(value);
   if(type==='percent')return `${Number(value||0).toFixed(1)}%`;
   if(type==='pending')return value ?? '—';
-  return value??0;
+  return value ?? 0;
 }
 
 function renderMetrics(cards){
@@ -61,9 +61,9 @@ function renderAiSummary(cards){
 function renderUpcoming(rows){
   upcomingJobs.innerHTML=rows.length?rows.map(job=>`
     <article class="mini-item">
-      <strong>${esc(job.reference)} · ${esc(job.name)}</strong>
-      <span>${prettyDate(job.preferred_date)} · ${esc(job.preferred_time)} · ${esc(job.clean_type)}</span>
-      <span>${esc(job.status)}${job.cleaner_name?` · ${esc(job.cleaner_name)}`:' · No cleaner assigned'}</span>
+      <strong>${esc(job.reference)} Â· ${esc(job.name)}</strong>
+      <span>${prettyDate(job.preferred_date)} Â· ${esc(job.preferred_time)} Â· ${esc(job.clean_type)}</span>
+      <span>${esc(job.status)}${job.cleaner_name?` Â· ${esc(job.cleaner_name)}`:' Â· No cleaner assigned'}</span>
     </article>
   `).join(''):'<div class="empty-mini">No jobs scheduled for today or tomorrow.</div>';
 }
@@ -71,15 +71,15 @@ function renderUpcoming(rows){
 function renderReviews(rows){
   recentReviews.innerHTML=rows.length?rows.map(review=>`
     <article class="mini-item">
-      <strong><span class="stars">${'★'.repeat(Math.max(1,Math.min(5,review.rating||5)))}</span> ${esc(review.customer_name||'Customer')}</strong>
-      <span>${esc(review.comment||'No written comment')} ${review.booking_reference?`· ${esc(review.booking_reference)}`:''}</span>
+      <strong><span class="stars">${'â˜…'.repeat(Math.max(1,Math.min(5,review.rating||5)))}</span> ${esc(review.customer_name||'Customer')}</strong>
+      <span>${esc(review.comment||'No written comment')} ${review.booking_reference?`Â· ${esc(review.booking_reference)}`:''}</span>
       <span>${new Date(review.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}</span>
     </article>
   `).join(''):'<div class="empty-mini">No customer reviews recorded yet.</div>';
 }
 
 function sessionExpired(){
-  metricGrid.innerHTML='<div class="owner-card loading sp-loader">Your admin session expired. Redirecting to login…</div>';
+  metricGrid.innerHTML='<div class="owner-card loading sp-loader">Your admin session expired. Redirecting to loginâ€¦</div>';
   setTimeout(()=>{location.href='/admin/login?expired=1'},350);
 }
 
@@ -98,7 +98,7 @@ async function loadDashboard(){
     renderUpcoming(data.upcoming||[]);
     renderReviews(data.reviews||[]);
   }catch(error){
-    metricGrid.innerHTML='<div class="owner-card loading sp-loader">Could not load the command centre. Please refresh.</div>';
+    metricGrid.innerHTML='<div class="owner-card loading sp-loader">Could not load the Sparkles Owner Command Centre. Please refresh.</div>';
   }
 }
 

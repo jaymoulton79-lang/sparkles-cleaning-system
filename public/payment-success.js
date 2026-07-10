@@ -9,7 +9,7 @@ async function verify() {
 
     const label = data.payment_type === 'deposit' ? 'Deposit paid' : 'Balance paid';
     box.innerHTML = `
-      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"></div>
+      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Agency logo"></div>
       <div class="success-icon">Success</div>
       <h1>${label}</h1>
       <p>Thank you. Your payment has been confirmed and saved against your Sparkles booking.</p>
@@ -17,7 +17,7 @@ async function verify() {
       <a class="sp-button" href="/">Back to Sparkles Booking Centre</a>`;
   } catch (e) {
     box.innerHTML = `
-      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"></div>
+      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Agency logo"></div>
       <div class="flow-status flow-warning">Payment check in progress</div>
       <h1>We're checking your payment</h1>
       <p>We couldn't confirm the payment instantly, but your booking can still update automatically once Stripe confirms it.</p>

@@ -10,7 +10,7 @@ async function loadQuote() {
     if (!r.ok) throw new Error(quote.error);
 
     card.innerHTML = `
-      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"></div>
+      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Agency logo"></div>
       <div class="eyebrow">Your Sparkles Quote</div>
       <h1>${money(quote.total_amount)}</h1>
       <p>Hello ${escapeHtml(quote.name)}. Here’s your tailored Sparkles quote. Smiles Come Standard.</p>
@@ -28,7 +28,7 @@ async function loadQuote() {
     document.querySelector('#acceptQuote').onclick = acceptQuote;
   } catch (e) {
     card.innerHTML = `
-      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"></div>
+      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Agency logo"></div>
       <div class="flow-status flow-error">Quote unavailable</div>
       <h1>We couldn’t load this quote.</h1>
       <p>${escapeHtml(e.message || 'Please return to the Booking Centre and try again.')}</p>

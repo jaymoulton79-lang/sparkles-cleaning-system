@@ -3,7 +3,7 @@ const SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const TIMES=['Morning (8am–12pm)','Afternoon (12pm–4pm)','Late afternoon (4pm–6pm)','Flexible'];
 const STATUS_CLASSES={'New':'new','Deposit Paid':'assigned','Assigned':'assigned','Accepted':'assigned','In Progress':'in-progress','Completed':'completed','Cancelled':'cancelled'};
 let bookings=[],cleaners=[],view='month',cursor=new Date();cursor.setHours(12,0,0,0);let draggedId=null;
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const esc=v=>{const d=document.createElement('div');d.textContent=v ?? '';return d.innerHTML};
 const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
 const startWeek=d=>addDays(d,-((d.getDay()+6)%7));

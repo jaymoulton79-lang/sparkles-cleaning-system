@@ -50,10 +50,10 @@ form.addEventListener('submit', async e => {
     if (!response.ok) throw new Error(result.error || 'Something went wrong.');
     const paymentPanel = result.checkout_url
       ? `<a class="sp-button pay-button" href="${escapeHtml(result.checkout_url)}">Pay 25% deposit securely</a><p class="fine">You’ll be taken to Stripe Checkout. Your booking stays as Deposit Due until payment succeeds.</p>`
-      : `<div class="alert error show">Your booking was saved, but the secure deposit link could not be created just now. Please contact Sparkles Cleaning and we’ll help you complete the deposit.</div>`;
+      : `<div class="alert error show">Your booking was saved, but the secure deposit link could not be created just now. Please contact Sparkles Cleaning Agency and we’ll help you complete the deposit.</div>`;
     document.querySelector('#formCard').innerHTML = `
       <div class="success booking-success-panel">
-        <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning logo"></div>
+        <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Agency logo"></div>
         <div class="success-icon">Success</div>
         <h2>Sparkles booking received, ${firstName}.</h2>
         <p>Smiles Come Standard. Your quote is ready — pay the 25% deposit to confirm your booking.</p>

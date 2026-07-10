@@ -22,7 +22,7 @@ cleanerForm.addEventListener('submit',async e=>{
     const response=await fetch('/api/cleaners',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const result=await response.json();
     if(!response.ok)throw new Error(result.error||'Something went wrong.');
-    document.querySelector('.card').innerHTML='<div class="success"><div class="success-icon">✓</div><h2>Your profile is ready!</h2><p>Thanks for joining Sparkles. You can now log in to view assigned jobs.</p><a class="pay-button" href="/cleaner/login">Go to cleaner login</a></div>';
+    document.querySelector('.card').innerHTML='<div class="success"><div class="success-icon">✓</div><h2>Your profile is ready!</h2><p>Thanks for joining Sparkles Cleaning Agency. You can now log in to view assigned jobs.</p><a class="pay-button" href="/cleaner/login">Go to cleaner login</a></div>';
     window.scrollTo({top:0,behavior:'smooth'});
   }catch(error){
     cleanerAlert.textContent=error.message;

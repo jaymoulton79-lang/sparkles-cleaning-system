@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Apply to Clean | Sparkles Cleaning Cambridge</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/recruitment.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header>
+    <nav class="nav">
+      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Cambridge<small>Cleaner application</small></span></a>
+      <a class="nav-link" href="/">Sparkles Booking Centre</a>
+    </nav>
+  </header>
+  <main class="recruit-page">
+    <section class="recruit-hero">
+      <div>
+        <p class="eyebrow">Sparkles Cleaning Cambridge</p>
+        <h1>Apply to join our cleaner network</h1>
+        <p>Tell us where you work, what services you offer and when you are available. If it looks like a good fit, Sparkles will contact you.</p>
+      </div>
+      <div class="source-card">
+        <span>Application source</span>
+        <strong id="sourceLabel">Website</strong>
+      </div>
+    </section>
+    <form id="applyForm" class="recruit-form">
+      <input type="hidden" name="source" id="sourceInput" value="Website">
+      <div class="field-grid">
+        <label>Name<input name="name" required autocomplete="name"></label>
+        <label>Phone<input name="phone" required autocomplete="tel"></label>
+        <label>Email<input name="email" type="email" required autocomplete="email"></label>
+        <label>Postcode<input name="postcode" required autocomplete="postal-code"></label>
+        <label>Travel radius in miles<input name="travel_radius" type="number" min="1" step="1" value="5"></label>
+        <label>Hourly rate (£)<input name="hourly_rate" type="number" min="0" step="0.5" placeholder="e.g. 15"></label>
+      </div>
+      <label>Cleaning experience<textarea name="experience" rows="4" placeholder="Tell us about your cleaning experience, transport, and the areas you cover."></textarea></label>
+      <fieldset>
+        <legend>Availability</legend>
+        <div class="check-grid" data-name="availability">
+          <label><input type="checkbox" value="Monday"> Monday</label>
+          <label><input type="checkbox" value="Tuesday"> Tuesday</label>
+          <label><input type="checkbox" value="Wednesday"> Wednesday</label>
+          <label><input type="checkbox" value="Thursday"> Thursday</label>
+          <label><input type="checkbox" value="Friday"> Friday</label>
+          <label><input type="checkbox" value="Saturday"> Saturday</label>
+          <label><input type="checkbox" value="Sunday"> Sunday</label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Services offered</legend>
+        <div class="check-grid" data-name="services">
+          <label><input type="checkbox" value="Regular clean"> Regular clean</label>
+          <label><input type="checkbox" value="Deep clean"> Deep clean</label>
+          <label><input type="checkbox" value="End of tenancy"> End of tenancy</label>
+          <label><input type="checkbox" value="Office clean"> Office clean</label>
+          <label><input type="checkbox" value="Airbnb turnover"> Airbnb turnover</label>
+        </div>
+      </fieldset>
+      <div class="field-grid">
+        <label>DBS status<select name="dbs_status"><option>Unknown</option><option>Applied</option><option>Verified</option><option>Not available</option></select></label>
+        <label>Insurance status<select name="insurance_status"><option>Unknown</option><option>Insured</option><option>Not insured</option><option>In progress</option></select></label>
+      </div>
+      <label>Extra notes<textarea name="notes" rows="3" placeholder="Anything else Sparkles should know?"></textarea></label>
+      <button class="primary" type="submit">Submit application</button>
+      <p id="applyMessage" class="form-message"></p>
+    </form>
+  </main>
+  <script src="/cleaner-apply.js"></script>
+</body>
+</html>

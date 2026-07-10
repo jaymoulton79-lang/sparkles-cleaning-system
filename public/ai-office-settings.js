@@ -1,4 +1,4 @@
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const esc=v=>{const d=document.createElement('div');d.textContent=v ?? '';return d.innerHTML};
 let settings;
 
 async function loadSettings(){

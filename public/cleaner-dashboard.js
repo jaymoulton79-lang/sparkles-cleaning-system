@@ -97,7 +97,7 @@ async function load() {
   }
   document.querySelector('#jobs').innerHTML = jobs.length
     ? `<div class="job-list">${jobs.map(jobCard).join('')}</div>`
-    : '<div class="empty cleaner-empty"><strong>No assigned jobs yet.</strong><br>When Sparkles assigns you a booking, it will appear here.</div>';
+    : '<div class="empty cleaner-empty"><strong>No assigned jobs yet.</strong><br>When Sparkles Cleaning Agency assigns you a booking, it will appear here.</div>';
 }
 
 async function jobAction(id, action, button) {

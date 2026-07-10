@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Sparkles AI | Sparkles Cleaning Cambridge</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/ai-office.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header><nav class="nav">
+    <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Cambridge<small>Owner Command Centre</small></span></a>
+    <div class="admin-nav"><a href="/admin/dashboard">Command Centre</a><a href="/admin/bookings">Bookings</a><a href="/admin/calendar">Calendar</a><a href="/admin/cleaners">Cleaners</a><a href="/admin/automations">Automations</a><a class="active" href="/admin/ai-office">Sparkles AI</a><a href="/admin/receptionist">Sparkles AI Receptionist</a><a href="/admin/setup">Setup</a></div>
+  </nav></header>
+  <main class="ai-page">
+    <div class="ai-hero">
+      <div><h1>Sparkles AI</h1><p>Answer enquiries, collect booking details and generate Sparkles Cleaning Cambridge quotes from your live rules.</p></div>
+      <a class="primary-small" href="/admin/ai-office/settings">Edit AI settings</a>
+    </div>
+    <div class="ai-grid">
+      <section class="ai-card">
+        <h2>Customer enquiry assistant</h2>
+        <div id="aiAlert" class="alert"></div>
+        <form id="assistantForm" class="ai-tools">
+          <div class="field full"><label>Customer message</label><textarea name="message" placeholder="Paste or type the customer enquiry here..."></textarea></div>
+          <div class="ai-details">
+            <div class="field"><label>Name</label><input name="name"></div>
+            <div class="field"><label>Phone</label><input name="phone"></div>
+            <div class="field"><label>Email</label><input name="email" type="email"></div>
+            <div class="field"><label>Postcode</label><input name="postcode"></div>
+            <div class="field"><label>Clean type</label><select name="clean_type" id="cleanType"></select></div>
+            <div class="field"><label>Bedrooms</label><input name="bedrooms" type="number" min="0"></div>
+            <div class="field"><label>Bathrooms</label><input name="bathrooms" type="number" min="1"></div>
+            <div class="field"><label>Preferred date</label><input name="preferred_date" type="date"></div>
+            <div class="field"><label>Preferred time</label><input name="preferred_time" placeholder="Morning, afternoon or flexible"></div>
+            <div class="field"><label>Address</label><input name="address"></div>
+          </div>
+          <button class="submit" type="submit">Generate office manager reply</button>
+        </form>
+      </section>
+      <aside class="ai-card">
+        <h2>Business brain</h2>
+        <div class="ai-summary" id="settingsSummary"><div class="empty-mini">Loading settings…</div></div>
+      </aside>
+    </div>
+    <section class="ai-card" style="margin-top:18px">
+      <h2>Suggested reply</h2>
+      <div id="replyBox" class="ai-reply">Ask the Sparkles AI to draft a reply.</div>
+      <div id="quoteBox"></div>
+    </section>
+  </main>
+  <script src="/ai-office.js"></script>
+</body>
+</html>

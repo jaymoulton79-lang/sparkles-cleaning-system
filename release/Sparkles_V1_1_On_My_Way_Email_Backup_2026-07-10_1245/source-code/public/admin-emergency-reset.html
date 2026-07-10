@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Emergency Admin Reset | Sparkles Cleaning Cambridge</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/cleaner.css">
+  <link rel="stylesheet" href="/payments.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header><nav class="nav">
+    <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Cambridge<small>Emergency Reset</small></span></a>
+    <a class="admin-link" href="/admin/login">Owner Command Centre login →</a>
+  </nav></header>
+  <main class="payment-page">
+    <section class="payment-card auth-card">
+      <h1>Emergency admin reset</h1>
+      <p>Enter the Railway <code>ADMIN_SETUP_TOKEN</code>, then set the admin password.</p>
+      <div id="resetAlert" class="alert"></div>
+      <form id="resetForm">
+        <div class="field">
+          <label for="setupToken">ADMIN_SETUP_TOKEN</label>
+          <input id="setupToken" name="setupToken" type="password" autocomplete="off" required>
+        </div>
+        <div class="field">
+          <label for="email">Admin email</label>
+          <input id="email" name="email" type="email" value="labcontractors@outlook.com" readonly required>
+        </div>
+        <div class="field">
+          <label for="password">New password</label>
+          <input id="password" name="password" type="password" minlength="8" autocomplete="new-password" required>
+        </div>
+        <button class="submit" type="submit">Set admin password</button>
+      </form>
+    </section>
+  </main>
+  <script src="/admin-emergency-reset.js"></script>
+</body>
+</html>

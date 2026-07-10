@@ -1,5 +1,5 @@
 document.head.insertAdjacentHTML('beforeend','<link rel="stylesheet" href="/cleaner.css">');
-const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+const esc=v=>{const d=document.createElement('div');d.textContent=v ?? '';return d.innerHTML};
 const days=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const services=['Regular clean','Deep clean','End of tenancy','One-off clean'];
 let cleaners=[];

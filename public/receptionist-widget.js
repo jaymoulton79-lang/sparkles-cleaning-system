@@ -10,7 +10,7 @@
   const body=panel.querySelector('#sparklesChatBody');
   const form=panel.querySelector('form');
   const input=form.elements.message;
-  const esc=v=>{const d=document.createElement('div');d.textContent=v??'';return d.innerHTML};
+  const esc=v=>{const d=document.createElement('div');d.textContent=v ?? '';return d.innerHTML};
   function linkify(text){
     return esc(text).replace(/(https?:\/\/[^\s]+)/g,'<a class="chat-pay" href="$1" target="_blank">$1</a>');
   }
