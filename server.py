@@ -1371,6 +1371,67 @@ def connect():
     return conn
 
 
+def quote_identifier(identifier):
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def table_exists(conn, table_name):
+    return bool(conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table_name,)).fetchone())
+
+
+def table_count(conn, table_name, where="", params=()):
+    if not table_exists(conn, table_name):
+        return 0
+    sql = f"SELECT COUNT(*) count FROM {quote_identifier(table_name)}"
+    if where:
+        sql += f" WHERE {where}"
+    row = conn.execute(sql, params).fetchone()
+    return int(row["count"] or 0) if row else 0
+
+
+def perform_fresh_launch_reset():
+    """Archive old launch-test activity while preserving setup, auth config and payments."""
+    now = utcnow().isoformat()
+    archive_reason = f"Fresh launch reset on {now}"
+    clear_tables = [
+        "ai_messages",
+        "ai_conversations",
+        "automation_jobs",
+        "booking_timeline",
+        "cleaner_offers",
+        "cleaner_applicants",
+        "customer_reviews",
+        "email_log",
+        "password_reset_tokens",
+    ]
+    with connect() as conn:
+        summary = {
+            "database": "PostgreSQL DATABASE_URL" if using_postgres() else str(configured_database_path()),
+            "bookings_archived": table_count(conn, "bookings", "archived_at IS NULL"),
+            "active_cleaners_deactivated": table_count(conn, "cleaners", "COALESCE(active,0)=1"),
+            "payments_preserved": table_count(conn, "payments"),
+            "config_preserved": True,
+            "admin_login_preserved": True,
+            "stripe_email_config_preserved": True,
+            "cleared_tables": {},
+        }
+        if table_exists(conn, "bookings"):
+            conn.execute("""
+                UPDATE bookings
+                SET archived_at=?, archive_reason=?, is_test=1
+                WHERE archived_at IS NULL
+            """, (now, archive_reason))
+        if table_exists(conn, "cleaners"):
+            conn.execute("UPDATE cleaners SET active=0")
+        for table_name in clear_tables:
+            if not table_exists(conn, table_name):
+                summary["cleared_tables"][table_name] = 0
+                continue
+            summary["cleared_tables"][table_name] = table_count(conn, table_name)
+            conn.execute(f"DELETE FROM {quote_identifier(table_name)}")
+    return summary
+
+
 def sqlite_path_from_url(value):
     if not value:
         return None
@@ -2092,6 +2153,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.admin_email_test()
+        if path == "/api/admin/fresh-launch-reset":
+            if not self.require_admin():
+                return
+            return self.fresh_launch_reset()
         if path == "/api/cleaner/login":
             return self.login_cleaner()
         if path == "/api/customer/register":
@@ -2280,6 +2345,19 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > 1024 * 1024:
             raise ValueError("Invalid request.")
         return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def fresh_launch_reset(self):
+        try:
+            data = self.read_json()
+            if data.get("confirm") != "RESET FRESH LAUNCH":
+                return self.send_json({"error": "Confirmation phrase is required."}, 400)
+            summary = perform_fresh_launch_reset()
+            return self.send_json({"ok": True, "summary": summary})
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+        except Exception as error:
+            logger.exception("Fresh launch reset failed")
+            return self.send_json({"error": "Fresh launch reset failed. Check server logs for details."}, 500)
 
     def login_admin(self):
         try:

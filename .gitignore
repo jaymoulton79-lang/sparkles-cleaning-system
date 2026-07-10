@@ -5,4 +5,5 @@ data/
 __pycache__/
 *.py[cod]
 *.log
+tmp_fresh_launch_reset*.db
 work/
