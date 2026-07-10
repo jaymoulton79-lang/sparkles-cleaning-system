@@ -2079,6 +2079,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "launch-console.html")
+        if path in ("/admin/fresh-launch-reset", "/admin/fresh-launch-reset/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "fresh-launch-reset.html")
         if path in ("/admin/bookings", "/admin/bookings/"):
             if not self.is_admin():
                 return self.redirect("/admin/login")
@@ -2133,7 +2137,7 @@ class Handler(BaseHTTPRequestHandler):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/ai-recruitment.html", "/launch-console.html", "/setup.html", "/admin-diagnostics.html"}
+        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/ai-recruitment.html", "/launch-console.html", "/fresh-launch-reset.html", "/setup.html", "/admin-diagnostics.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fresh Launch Reset | Sparkles Cleaning Agency</title>
+  <link rel="stylesheet" href="/sparkles-design.css">
+  <style>
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(22,119,255,.22), transparent 30%),
+        linear-gradient(135deg, #f8fbff 0%, #eef6ff 45%, #ffffff 100%);
+      color: #0f172a;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .reset-card {
+      width: min(720px, 100%);
+      background: rgba(255,255,255,.94);
+      border: 1px solid rgba(15,23,42,.08);
+      border-radius: 30px;
+      box-shadow: 0 24px 80px rgba(15,23,42,.14);
+      padding: clamp(28px, 5vw, 48px);
+    }
+    .eyebrow {
+      color: #1677ff;
+      font-size: .78rem;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      margin: 0 0 12px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      letter-spacing: -.05em;
+      line-height: .95;
+    }
+    .lead {
+      margin: 0 0 24px;
+      color: #475569;
+      font-size: 1.08rem;
+      line-height: 1.6;
+    }
+    .safe-list {
+      display: grid;
+      gap: 10px;
+      margin: 24px 0;
+      padding: 0;
+      list-style: none;
+    }
+    .safe-list li {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: #f8fafc;
+      border: 1px solid rgba(15,23,42,.07);
+      color: #334155;
+    }
+    label {
+      display: block;
+      margin: 24px 0 10px;
+      font-weight: 800;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid rgba(15,23,42,.14);
+      border-radius: 18px;
+      padding: 16px 18px;
+      font: inherit;
+      outline: none;
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    input:focus {
+      border-color: #1677ff;
+      box-shadow: 0 0 0 4px rgba(22,119,255,.12);
+    }
+    button {
+      width: 100%;
+      margin-top: 16px;
+      border: 0;
+      border-radius: 18px;
+      padding: 16px 20px;
+      background: linear-gradient(135deg, #0f172a, #1677ff);
+      color: white;
+      font: inherit;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 18px 34px rgba(22,119,255,.24);
+      transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 22px 42px rgba(22,119,255,.28); }
+    button:disabled { cursor: not-allowed; opacity: .58; transform: none; }
+    .result {
+      display: none;
+      margin-top: 22px;
+      padding: 18px;
+      border-radius: 18px;
+      background: #f8fafc;
+      border: 1px solid rgba(15,23,42,.08);
+      white-space: pre-wrap;
+      overflow: auto;
+    }
+    .result.success { display: block; border-color: rgba(34,197,94,.35); background: #f0fdf4; }
+    .result.error { display: block; border-color: rgba(239,68,68,.35); background: #fef2f2; }
+    .back-link {
+      display: inline-flex;
+      margin-top: 22px;
+      color: #1677ff;
+      font-weight: 800;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="reset-card">
+    <p class="eyebrow">Admin-only launch tool</p>
+    <h1>Fresh Launch Reset</h1>
+    <p class="lead">
+      This clears the test clutter so Sparkles looks brand new for launch. It keeps admin login,
+      setup details, Stripe/email configuration, and payment history.
+    </p>
+    <ul class="safe-list">
+      <li>Old bookings are archived as test data, not counted on the dashboard.</li>
+      <li>Cleaner accounts are deactivated so no test cleaner appears active.</li>
+      <li>Applicants, AI conversations, job offers, timelines and email logs are cleared.</li>
+      <li>Payment records are preserved.</li>
+    </ul>
+    <label for="confirm">Type RESET FRESH LAUNCH to continue</label>
+    <input id="confirm" autocomplete="off" placeholder="RESET FRESH LAUNCH">
+    <button id="run-reset" type="button" disabled>Reset Sparkles to fresh launch state</button>
+    <pre id="result" class="result"></pre>
+    <a class="back-link" href="/admin/dashboard">← Back to Owner Command Centre</a>
+  </main>
+  <script>
+    const input = document.getElementById('confirm');
+    const button = document.getElementById('run-reset');
+    const result = document.getElementById('result');
+    input.addEventListener('input', () => {
+      button.disabled = input.value.trim() !== 'RESET FRESH LAUNCH';
+    });
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      button.textContent = 'Resetting...';
+      result.className = 'result';
+      result.textContent = '';
+      try {
+        const response = await fetch('/api/admin/fresh-launch-reset', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({confirm: input.value.trim()})
+        });
+        const data = await response.json();
+        result.className = `result ${response.ok ? 'success' : 'error'}`;
+        result.textContent = JSON.stringify(data, null, 2);
+        button.textContent = response.ok ? 'Fresh launch reset complete' : 'Reset failed';
+      } catch (error) {
+        result.className = 'result error';
+        result.textContent = error.message || String(error);
+        button.textContent = 'Reset failed';
+      }
+    });
+  </script>
+</body>
+</html>
