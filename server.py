@@ -1853,6 +1853,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.owner_dashboard()
+        if path == "/api/admin/launch-console":
+            if not self.require_admin():
+                return
+            return self.launch_console()
         if path == "/api/admin/diagnostics":
             if not self.require_admin():
                 return
@@ -2029,6 +2033,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "admin-diagnostics.html")
+        if path in ("/admin/launch", "/admin/launch/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "launch-console.html")
         if path in ("/admin/bookings", "/admin/bookings/"):
             if not self.is_admin():
                 return self.redirect("/admin/login")
@@ -2083,7 +2091,7 @@ class Handler(BaseHTTPRequestHandler):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/ai-recruitment.html", "/setup.html", "/admin-diagnostics.html"}
+        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/ai-recruitment.html", "/launch-console.html", "/setup.html", "/admin-diagnostics.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -3257,6 +3265,126 @@ class Handler(BaseHTTPRequestHandler):
 
     def owner_dashboard(self):
         return self.send_json(self.owner_dashboard_payload())
+
+    def launch_console_payload(self):
+        dashboard = self.owner_dashboard_payload()
+        cards = dashboard.get("cards", {})
+        applicant_counts = {"total": 0, "new": 0, "recommended": 0, "needs_review": 0}
+        recent_applicants = []
+        try:
+            with connect() as conn:
+                applicant_rows = conn.execute("SELECT * FROM cleaner_applicants ORDER BY id DESC LIMIT 12").fetchall()
+            scored = []
+            for row in applicant_rows:
+                item = dict(row)
+                item.update(self.score_cleaner_applicant(item))
+                item["availability"] = json.loads(item.get("availability") or "[]") if isinstance(item.get("availability"), str) else item.get("availability") or []
+                item["services"] = json.loads(item.get("services") or "[]") if isinstance(item.get("services"), str) else item.get("services") or []
+                scored.append(item)
+            recent_applicants = scored[:5]
+            applicant_counts["total"] = len(scored)
+            applicant_counts["new"] = len([item for item in scored if str(item.get("status") or "New").lower() == "new"])
+            applicant_counts["recommended"] = len([item for item in scored if item.get("recommendation") == "Recommended"])
+            applicant_counts["needs_review"] = len([item for item in scored if item.get("recommendation") == "Needs review"])
+        except Exception as error:
+            logger.warning(json.dumps({"launch_console_applicants": "failed", "error": str(error)}))
+
+        booking_link = public_url().rstrip("/") + "/"
+        cleaner_links = {
+            "facebook": public_url().rstrip("/") + "/cleaner/apply?source=facebook",
+            "whatsapp": public_url().rstrip("/") + "/cleaner/apply?source=whatsapp",
+            "indeed": public_url().rstrip("/") + "/cleaner/apply?source=indeed",
+            "gumtree": public_url().rstrip("/") + "/cleaner/apply?source=gumtree",
+        }
+        cleaner_post = (
+            "Self-employed cleaners wanted\n\n"
+            "Sparkles Cleaning Agency is looking for reliable self-employed domestic cleaners.\n\n"
+            "We are building a trusted cleaner network and have cleaning job opportunities available based on your postcode, availability and travel radius.\n\n"
+            "You choose:\n\n"
+            "- Your availability\n"
+            "- Your preferred travel area\n"
+            "- The cleaning services you offer\n"
+            "- Whether you want one-off, regular, deep clean or end-of-tenancy work\n\n"
+            "Ideal for experienced cleaners who are reliable, friendly and professional.\n\n"
+            "DBS and public liability insurance preferred, but you can still apply and tell us your current status.\n\n"
+            f"Apply here:\n\n{cleaner_links['facebook']}\n\n"
+            "Smiles Come Standard."
+        )
+        customer_post = (
+            "Need a reliable cleaner?\n\n"
+            "Sparkles Cleaning Agency lets you book a professional clean online in under 60 seconds.\n\n"
+            "- One-off cleans\n"
+            "- Regular cleans\n"
+            "- Deep cleans\n"
+            "- End-of-tenancy cleans\n"
+            "- Secure 25% deposit by Stripe\n"
+            "- Clear booking confirmation\n\n"
+            f"Book here:\n\n{booking_link}\n\n"
+            "Smiles Come Standard."
+        )
+        actions = [
+            {
+                "title": "Recruit cleaners",
+                "detail": "Generate and post your cleaner advert, then review applicants.",
+                "href": "/admin/ai-recruitment",
+                "button": "Open AI Recruitment",
+                "priority": "Supply"
+            },
+            {
+                "title": "Review applicants",
+                "detail": f"{applicant_counts['new']} new applicant(s), {applicant_counts['recommended']} recommended.",
+                "href": "/admin/cleaner-applicants",
+                "button": "Review applicants",
+                "priority": "Supply"
+            },
+            {
+                "title": "Get customer bookings",
+                "detail": "Copy the customer advert and send people to your booking link.",
+                "href": booking_link,
+                "button": "Open booking page",
+                "priority": "Demand"
+            },
+            {
+                "title": "Assign paid bookings",
+                "detail": f"{cards.get('waiting_assignment', 0)} booking(s) waiting for cleaner assignment.",
+                "href": "/admin/bookings",
+                "button": "Open bookings",
+                "priority": "Operations"
+            },
+            {
+                "title": "Collect balances",
+                "detail": f"Outstanding balances: £{(cards.get('outstanding_balances', 0) or 0)/100:.2f}.",
+                "href": "/admin/bookings",
+                "button": "Check balances",
+                "priority": "Cash"
+            }
+        ]
+        return {
+            "as_of": utcnow().isoformat(),
+            "booking_link": booking_link,
+            "cleaner_links": cleaner_links,
+            "cards": {
+                "applicants_total": applicant_counts["total"],
+                "new_applicants": applicant_counts["new"],
+                "recommended_applicants": applicant_counts["recommended"],
+                "active_cleaners": cards.get("active_cleaners", 0),
+                "total_bookings": cards.get("total_bookings", 0),
+                "waiting_assignment": cards.get("waiting_assignment", 0),
+                "revenue_week": cards.get("revenue_week", 0),
+                "outstanding_balances": cards.get("outstanding_balances", 0),
+            },
+            "copy": {
+                "cleaner_facebook": cleaner_post,
+                "customer_facebook": customer_post,
+                "whatsapp_referral": f"Hi, I'm building a cleaner network for Sparkles Cleaning Agency. Do you know any reliable cleaners who might want self-employed cleaning work? They can apply here: {cleaner_links['whatsapp']}",
+                "customer_whatsapp": f"I'm now taking cleaning bookings through Sparkles Cleaning Agency. You can book online, get your quote and pay the 25% deposit securely by Stripe: {booking_link}"
+            },
+            "actions": actions,
+            "recent_applicants": recent_applicants,
+        }
+
+    def launch_console(self):
+        return self.send_json(self.launch_console_payload())
 
     def admin_diagnostics(self):
         def quote_identifier(identifier):

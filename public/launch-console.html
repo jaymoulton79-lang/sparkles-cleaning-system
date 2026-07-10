@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Launch Console | Sparkles Cleaning Agency</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/launch-console.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header>
+    <nav class="nav">
+      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Agency<small>Automated cleaning agency</small></span></a>
+      <div class="admin-nav">
+        <a href="/admin/dashboard">Owner Command Centre</a>
+        <a class="active" href="/admin/launch">Launch Console</a>
+        <a href="/admin/bookings">Bookings</a>
+        <a href="/admin/cleaner-applicants">Applicants</a>
+        <a href="/admin/ai-recruitment">AI Recruitment</a>
+        <a href="/admin/cleaners">Cleaners</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="launch-page">
+    <section class="launch-hero">
+      <div>
+        <p class="eyebrow">Sparkles Launch Console</p>
+        <h1>One simple cockpit to get bookings, cleaners and money moving.</h1>
+        <p>No more hunting through tabs. Start here, copy what you need, open the right place, and do the next thing.</p>
+      </div>
+      <button class="launch-refresh" id="refreshLaunch">Refresh</button>
+    </section>
+
+    <section class="launch-stats" id="launchStats">
+      <div class="launch-loading">Loading launch numbers...</div>
+    </section>
+
+    <section class="launch-grid">
+      <article class="launch-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Today's next actions</h2>
+            <p>Do these in order. Keep it boring. Boring gets paid.</p>
+          </div>
+        </div>
+        <div id="launchActions" class="action-list"></div>
+      </article>
+
+      <article class="launch-panel">
+        <h2>Quick links</h2>
+        <p>Open the places you need without remembering URLs.</p>
+        <div class="quick-links" id="quickLinks"></div>
+      </article>
+    </section>
+
+    <section class="launch-grid">
+      <article class="launch-panel">
+        <h2>Copy/paste adverts</h2>
+        <p>Click copy, then paste into Facebook, WhatsApp, Indeed or Gumtree.</p>
+        <div class="copy-blocks" id="copyBlocks"></div>
+      </article>
+
+      <article class="launch-panel">
+        <h2>Recent cleaner applicants</h2>
+        <p>Approve only the people you would trust in a customer's home.</p>
+        <div id="recentApplicants" class="recent-applicants"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="/launch-console.js"></script>
+</body>
+</html>
