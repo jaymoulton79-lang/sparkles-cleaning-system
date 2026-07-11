@@ -444,14 +444,25 @@ def deliver_email_message(message):
     return "smtp"
 
 
-def send_auth_email(recipient, subject, body):
-    config = smtp_config()
-    if not config["host"]:
+def email_delivery_available():
+    provider = email_provider_config()
+    smtp = smtp_config()
+    return (
+        (provider["provider"] == "resend" and provider["resend_configured"]) or
+        (provider["provider"] == "sendgrid" and provider["sendgrid_configured"]) or
+        bool(smtp["host"])
+    )
+
+
+def send_auth_email(recipient, subject, body, html_body=None):
+    if not email_delivery_available():
         logger.info(json.dumps({"auth_email_preview": {"recipient": recipient, "subject": subject, "body": body}}))
         return "Preview"
     message = EmailMessage()
-    message["From"], message["To"], message["Subject"] = config["from"], recipient, subject
+    message["From"], message["To"], message["Subject"] = email_from_address(), recipient, subject
     message.set_content(body)
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
     deliver_email_message(message)
     return "Sent"
 
@@ -906,6 +917,85 @@ def sparkles_email_html(title, intro, rows, cta=None):
 </html>"""
 
 
+def owner_alert_recipient():
+    return (
+        runtime_setting("COMPANY_EMAIL", "")
+        or runtime_setting("ADMIN_EMAIL", "")
+        or email_contact_address()
+    ).strip()
+
+
+def cleaner_setup_link(token):
+    return f"{public_url()}/cleaner/setup?role=cleaner&token={urllib.parse.quote(token)}"
+
+
+def create_cleaner_invitation(cleaner_id):
+    token = secrets.token_urlsafe(32)
+    expires = utcnow() + timedelta(minutes=RESET_TOKEN_MINUTES)
+    with connect() as conn:
+        cleaner = conn.execute("SELECT * FROM cleaners WHERE id=?", (cleaner_id,)).fetchone()
+        if not cleaner:
+            raise ValueError("Cleaner not found.")
+        conn.execute(
+            "UPDATE password_reset_tokens SET used_at=? WHERE role='cleaner' AND subject_id=? AND used_at IS NULL",
+            (utcnow().isoformat(), cleaner_id),
+        )
+        conn.execute(
+            "INSERT INTO password_reset_tokens(token_hash,role,subject_id,email,expires_at,created_at) VALUES (?,?,?,?,?,?)",
+            (token_hash(token), "cleaner", cleaner_id, cleaner["email"], expires.isoformat(), utcnow().isoformat()),
+        )
+    return cleaner, cleaner_setup_link(token), expires
+
+
+def send_cleaner_invitation_email(cleaner_id):
+    cleaner, link, expires = create_cleaner_invitation(cleaner_id)
+    rows = [
+        ("Cleaner", cleaner["name"]),
+        ("Portal", "Sparkles Cleaner Portal"),
+        ("Expires", expires.strftime("%d %b %Y %H:%M UTC")),
+    ]
+    intro = f"Hello {display_customer_name(cleaner['name'])}, you have been invited to activate your Sparkles Cleaner Portal account. Create your own password using the secure one-time link below."
+    subject = "Activate your Sparkles Cleaner Portal account"
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nSetup link:\n{link}\n\nThis link can be used once and will expire automatically."
+    html_body = sparkles_email_html(
+        "Activate your cleaner account",
+        intro,
+        rows,
+        {"label": "Create cleaner password", "url": link},
+    )
+    status = send_auth_email(cleaner["email"], subject, body, html_body)
+    return {"status": status, "setup_link": link if status == "Preview" else None}
+
+
+def send_owner_job_alert(booking_id, title, intro, event):
+    recipient = owner_alert_recipient()
+    if not recipient:
+        return
+    with connect() as conn:
+        row = conn.execute("""SELECT b.*, c.name cleaner_name, c.email cleaner_email
+            FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id WHERE b.id=?""", (booking_id,)).fetchone()
+    if not row:
+        return
+    rows = [
+        ("Booking reference", row["reference"]),
+        ("Customer", row["name"]),
+        ("Cleaner", row["cleaner_name"] or "Unassigned"),
+        ("Service", row["clean_type"]),
+        ("Date", row["preferred_date"]),
+        ("Time", row["preferred_time"]),
+        ("Status", row["status"]),
+    ]
+    subject = f"{title} - {row['reference']}"
+    body = f"{intro}\n\n{plain_rows(rows)}"
+    html_body = sparkles_email_html(title, intro, rows, {"label": "Open Owner Command Centre", "url": f"{public_url()}/admin/bookings"})
+    try:
+        send_auth_email(recipient, subject, body, html_body)
+        automation.timeline(booking_id, event, f"Owner alert sent to {recipient}")
+    except Exception as error:
+        logger.error(json.dumps({"owner_alert": "failed", "booking_id": booking_id, "error": str(error)}))
+        automation.timeline(booking_id, event, f"Owner alert failed: {error}", "Warning")
+
+
 def booking_email_rows(booking, deposit_paid=None):
     if deposit_paid is None:
         payment_state = str(booking["payment_status"] or booking["status"] or "").strip().lower()
@@ -965,11 +1055,11 @@ def send_cleaner_job_details_email(booking_id):
         ("Notes", row["notes"] or "None"),
     ]
     intro = f"Hello {row['cleaner_name']}, you have been assigned a Sparkles Cleaner Portal job. Please review the details below."
-    subject = f"New assigned cleaning job – {row['reference']}"
-    body = f"{intro}\n\n{plain_rows(rows)}\n\nSparkles Cleaning Agency"
-    html_body = sparkles_email_html("New assigned job", intro, rows)
+    subject = f"New assigned cleaning job - {row['reference']}"
+    portal_url = f"{public_url()}/cleaner/login"
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nOpen the Cleaner Portal:\n{portal_url}\n\nSparkles Cleaning Agency"
+    html_body = sparkles_email_html("New assigned job", intro, rows, {"label": "Open Cleaner Portal", "url": portal_url})
     send_workflow_email(booking_id, row["cleaner_email"], subject, body, html_body)
-
 
 def send_cleaner_on_way_email(booking_id):
     with connect() as conn:
@@ -1020,7 +1110,7 @@ def suitable_cleaners(booking):
     weekday = datetime.fromisoformat(booking["preferred_date"]).strftime("%A")
     matches = []
     with connect() as conn:
-        for row in conn.execute("SELECT * FROM cleaners WHERE active=1").fetchall():
+        for row in conn.execute("SELECT * FROM cleaners WHERE active=1 AND password_hash IS NOT NULL AND password_hash<>''").fetchall():
             cleaner = dict(row)
             distance = distance_miles(booking["postcode"], cleaner["postcode"])
             if (weekday in json.loads(cleaner["availability"]) and booking["clean_type"] in json.loads(cleaner["services"])
@@ -1578,6 +1668,7 @@ def initialise():
             conn.execute("ALTER TABLE bookings ADD COLUMN customer_id INTEGER REFERENCES customers(id)")
         cleaner_workflow_columns = {
             "accepted_at": "TEXT",
+            "on_my_way_at": "TEXT",
             "started_at": "TEXT",
             "completed_at": "TEXT",
             "declined_at": "TEXT",
@@ -1969,6 +2060,7 @@ class Handler(BaseHTTPRequestHandler):
             cleaners = []
             for row in rows:
                 item = dict(row)
+                item["activated"] = bool(item.get("password_hash"))
                 item.pop("password_hash", None)
                 item["availability"] = json.loads(item["availability"])
                 item["services"] = json.loads(item["services"])
@@ -1997,7 +2089,7 @@ class Handler(BaseHTTPRequestHandler):
                 booking_id = int(path.split("/")[3])
                 with connect() as conn:
                     booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
-                    cleaners = conn.execute("SELECT * FROM cleaners WHERE active=1").fetchall()
+                    cleaners = conn.execute("SELECT * FROM cleaners WHERE active=1 AND password_hash IS NOT NULL AND password_hash<>''").fetchall()
                 if not booking:
                     return self.send_json({"error": "Booking not found."}, 404)
                 weekday = datetime.fromisoformat(booking["preferred_date"]).strftime("%A")
@@ -2041,7 +2133,7 @@ class Handler(BaseHTTPRequestHandler):
             if not session or session["role"] != "cleaner":
                 return self.send_json({"error": "Cleaner login required."}, 401)
             with connect() as conn:
-                rows = conn.execute("SELECT * FROM bookings WHERE cleaner_id=? ORDER BY preferred_date DESC, preferred_time DESC", (session["subject_id"],)).fetchall()
+                rows = conn.execute("SELECT * FROM bookings WHERE cleaner_id=? AND archived_at IS NULL ORDER BY preferred_date DESC, preferred_time DESC", (session["subject_id"],)).fetchall()
             bookings = []
             for row in rows:
                 item = dict(row)
@@ -2065,7 +2157,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(PUBLIC / "cleaner-apply.html")
         if path in ("/customer", "/customer/", "/customer/login", "/customer/login/"):
             return self.send_file(PUBLIC / "customer.html")
-        if path in ("/reset-password", "/reset-password/"):
+        if path in ("/reset-password", "/reset-password/", "/cleaner/setup", "/cleaner/setup/"):
             return self.send_file(PUBLIC / "reset-password.html")
         if path in ("/admin", "/admin/", "/admin/dashboard", "/admin/dashboard/"):
             if not self.is_admin():
@@ -2100,7 +2192,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "calendar.html")
         if path in ("/cleaner", "/cleaner/"):
-            return self.send_file(PUBLIC / "cleaner.html")
+            return self.send_file(PUBLIC / "cleaner-apply.html")
         if path in ("/cleaner/dashboard", "/cleaner/dashboard/"):
             if not self.is_cleaner():
                 return self.redirect("/cleaner/login")
@@ -2213,7 +2305,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             job_id = int(path.split("/")[3])
             return self.send_json({"ok": automation.retry(job_id)})
+        if path.startswith("/api/cleaners/") and path.endswith("/invite"):
+            if not self.require_admin():
+                return
+            return self.invite_cleaner(path)
         if path == "/api/cleaners":
+            if not self.require_admin():
+                return
             return self.create_cleaner()
         if path == "/api/cleaner-applicants":
             return self.create_cleaner_applicant()
@@ -2936,6 +3034,9 @@ class Handler(BaseHTTPRequestHandler):
         def is_active_cleaner(cleaner):
             inactive_values = {"0", "false", "no", "inactive", "disabled", "archived", "suspended", "deleted", "cancelled", "canceled", "pending", "invited"}
             active_values = {"1", "true", "yes", "active", "enabled", "approved", "verified", "available", "onboarded"}
+            password_value = get_value(cleaner, "password_hash", default="__missing__")
+            if password_value in ("", None):
+                return False
             role_value = get_value(cleaner, "role", "user_role", "account_type", "user_type", "type", default=None)
             has_cleaner_role = role_value is not None and "cleaner" in normalise(role_value)
             if role_value is not None and not has_cleaner_role:
@@ -3720,21 +3821,35 @@ class Handler(BaseHTTPRequestHandler):
     def create_cleaner(self):
         try:
             data = self.read_json()
-            required = ["name", "phone", "email", "password", "postcode", "travel_radius", "hourly_rate", "availability", "services", "dbs_status", "insurance_status"]
+            required = ["name", "phone", "email", "postcode", "travel_radius", "hourly_rate", "availability", "services", "dbs_status", "insurance_status"]
             if any(not data.get(key) for key in required):
                 raise ValueError("Please complete all required fields.")
             radius, rate = float(data["travel_radius"]), float(data["hourly_rate"])
             if radius <= 0 or rate <= 0:
                 raise ValueError("Travel radius and hourly rate must be greater than zero.")
+            availability = data.get("availability")
+            services = data.get("services")
+            if not isinstance(availability, list) or not availability or not isinstance(services, list) or not services:
+                raise ValueError("Choose at least one available day and one service.")
             with connect() as conn:
                 cursor = conn.execute("""INSERT INTO cleaners
-                    (name,phone,email,password_hash,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), hash_password(data["password"]), data["postcode"].strip().upper(), radius, rate, json.dumps(data["availability"]), json.dumps(data["services"]), data["dbs_status"], data["insurance_status"], datetime.now(timezone.utc).isoformat()))
-            self.send_json({"ok": True, "id": cursor.lastrowid}, 201)
+                    (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), data["postcode"].strip().upper(), radius, rate, json.dumps(availability), json.dumps(services), data["dbs_status"], data["insurance_status"], 1 if data.get("active", True) else 0, datetime.now(timezone.utc).isoformat()))
+                cleaner_id = cursor.lastrowid
+            invite = send_cleaner_invitation_email(cleaner_id) if data.get("send_invite", True) else {"status": "Not sent", "setup_link": None}
+            self.send_json({"ok": True, "id": cleaner_id, "invite": invite}, 201)
         except DB_INTEGRITY_ERROR_TYPES:
             self.send_json({"error": "An account already exists for that email address."}, 409)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, 400)
+
+    def invite_cleaner(self, path):
+        try:
+            cleaner_id = int(path.split("/")[3])
+            invite = send_cleaner_invitation_email(cleaner_id)
+            return self.send_json({"ok": True, "invite": invite})
+        except ValueError as error:
+            return self.send_json({"error": str(error)}, 404)
 
     def create_cleaner_applicant(self):
         try:
@@ -3877,7 +3992,7 @@ class Handler(BaseHTTPRequestHandler):
     def ai_recruitment_summary(self):
         with connect() as conn:
             rows = conn.execute("SELECT * FROM cleaner_applicants ORDER BY id DESC").fetchall()
-            active_cleaners = conn.execute("SELECT COUNT(*) AS total FROM cleaners WHERE COALESCE(active,1)=1").fetchone()
+            active_cleaners = conn.execute("SELECT COUNT(*) AS total FROM cleaners WHERE COALESCE(active,1)=1 AND password_hash IS NOT NULL AND password_hash<>''").fetchone()
         scored = []
         for row in rows:
             item = dict(row)
@@ -4108,10 +4223,7 @@ class Handler(BaseHTTPRequestHandler):
     def approve_cleaner_applicant(self, path):
         try:
             applicant_id = int(path.split("/")[3])
-            data = self.read_json()
-            password = str(data.get("password") or "").strip()
-            if len(password) < 8:
-                raise ValueError("Set a cleaner password of at least 8 characters.")
+            self.read_json()
             with connect() as conn:
                 applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
                 if not applicant:
@@ -4119,12 +4231,11 @@ class Handler(BaseHTTPRequestHandler):
                 if applicant["approved_cleaner_id"]:
                     return self.send_json({"error": "Applicant is already added as a cleaner."}, 409)
                 cursor = conn.execute("""INSERT INTO cleaners
-                    (name,phone,email,password_hash,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
                         applicant["name"],
                         applicant["phone"],
                         applicant["email"],
-                        hash_password(password),
                         applicant["postcode"],
                         float(applicant["travel_radius"] or 5),
                         float(applicant["hourly_rate"] or 0) or 15,
@@ -4141,7 +4252,8 @@ class Handler(BaseHTTPRequestHandler):
                     SET status='Added as Cleaner', approved_cleaner_id=?, updated_at=?
                     WHERE id=?
                 """, (cleaner_id, datetime.now(timezone.utc).isoformat(), applicant_id))
-            return self.send_json({"ok": True, "cleaner_id": cleaner_id}, 201)
+            invite = send_cleaner_invitation_email(cleaner_id)
+            return self.send_json({"ok": True, "cleaner_id": cleaner_id, "invite": invite}, 201)
         except DB_INTEGRITY_ERROR_TYPES:
             return self.send_json({"error": "A cleaner account already exists for that email address."}, 409)
         except (ValueError, TypeError, json.JSONDecodeError, IndexError) as error:
@@ -4216,9 +4328,9 @@ class Handler(BaseHTTPRequestHandler):
             cleaner_id = int(data.get("cleaner_id"))
             with connect() as conn:
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
-                cleaner = conn.execute("SELECT * FROM cleaners WHERE id=? AND active=1", (cleaner_id,)).fetchone()
+                cleaner = conn.execute("SELECT * FROM cleaners WHERE id=? AND active=1 AND password_hash IS NOT NULL AND password_hash<>''", (cleaner_id,)).fetchone()
                 if not booking or not cleaner:
-                    return self.send_json({"error": "Booking or cleaner not found."}, 404)
+                    return self.send_json({"error": "Booking or activated cleaner not found."}, 404)
                 if cleaner_has_conflict(conn, cleaner_id, booking["preferred_date"], booking["preferred_time"], booking_id):
                     return self.send_json({"error": f"{cleaner['name']} is already booked at that time."}, 409)
                 conn.execute("UPDATE bookings SET cleaner_id=?, status='Assigned', assigned_at=? WHERE id=?", (cleaner_id, datetime.now(timezone.utc).isoformat(), booking_id))
@@ -4257,13 +4369,14 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("UPDATE bookings SET status='New', cleaner_id=NULL, assigned_at=NULL, declined_at=?, cleaner_notes=CASE WHEN ?<>'' THEN ? ELSE cleaner_notes END WHERE id=?", (now, data.get("notes", "").strip(), data.get("notes", "").strip(), booking_id))
                     event, detail, status = "Job declined", f"{cleaner_name} declined the job; booking returned to New for reassignment", "New"
                 elif action == "on_way":
-                    if booking["status"] not in ("Accepted", "In Progress"):
+                    if booking["status"] not in ("Accepted", "On My Way"):
                         return self.send_json({"error": "Only accepted jobs can be marked as on the way."}, 409)
                     existing_on_way = conn.execute("SELECT 1 FROM booking_timeline WHERE booking_id=? AND event='Cleaner on the way' LIMIT 1", (booking_id,)).fetchone()
                     send_on_way_email = existing_on_way is None
-                    event, detail, status = "Cleaner on the way", f"{cleaner_name} marked themselves as on the way", booking["status"]
+                    conn.execute("UPDATE bookings SET status='On My Way', on_my_way_at=COALESCE(on_my_way_at, ?) WHERE id=?", (now, booking_id))
+                    event, detail, status = "Cleaner on the way", f"{cleaner_name} marked themselves as on the way", "On My Way"
                 elif action == "start":
-                    if booking["status"] not in ("Accepted", "In Progress"):
+                    if booking["status"] not in ("Accepted", "On My Way", "In Progress"):
                         return self.send_json({"error": "Only accepted jobs can be started."}, 409)
                     conn.execute("UPDATE bookings SET status='In Progress', accepted_at=COALESCE(accepted_at, ?), started_at=COALESCE(started_at, ?) WHERE id=?", (now, now, booking_id))
                     event, detail, status = "Job started", f"{cleaner_name} started the job", "In Progress"
@@ -4281,8 +4394,11 @@ class Handler(BaseHTTPRequestHandler):
             automation.timeline(booking_id, event, detail)
             if action == "on_way" and send_on_way_email:
                 safe_send_cleaner_on_way_email(booking_id)
+            if action == "decline":
+                send_owner_job_alert(booking_id, "Cleaner rejected job", f"{cleaner_name} rejected the assigned job. The booking now needs attention or reassignment.", "Owner rejection alert")
             if action == "complete":
                 automation.enqueue(booking_id, "send_final_invoice")
+                send_owner_job_alert(booking_id, "Cleaner completed job", f"{cleaner_name} marked the job complete. The final invoice workflow can now continue.", "Owner completion alert")
             return self.send_json({"ok": True, "status": status})
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error) or "Invalid cleaner job action."}, 400)
@@ -4333,7 +4449,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             booking_id = int(path.split("/")[3])
             data = self.read_json()
-            allowed_statuses = {"New", "Deposit Paid", "Assigned", "Accepted", "In Progress", "Completed", "Cancelled"}
+            allowed_statuses = {"New", "Deposit Paid", "Assigned", "Accepted", "On My Way", "In Progress", "Completed", "Cancelled"}
             invoice_url, invoice_error = None, None
             with connect() as conn:
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
@@ -4457,3 +4573,4 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "0.0.0.0")
     logger.info(f"Sparkles is ready on {host}:{port}")
     ThreadingHTTPServer((host, port), Handler).serve_forever()
+

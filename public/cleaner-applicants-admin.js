@@ -99,10 +99,9 @@ function openApprove(id){
   const applicant = applicants.find(x=>x.id===id);
   document.querySelector('#approveModal').innerHTML = `<div class="modal-backdrop">
     <section class="modal">
-      <div class="modal-head"><div><h2>Approve ${esc(applicant.name)}</h2><p>This creates an active cleaner login account.</p></div><button class="modal-close" onclick="closeApprove()">Ã—</button></div>
-      <label>Temporary cleaner password<input id="cleanerPassword" type="password" placeholder="At least 8 characters"></label>
-      <p class="form-message">Give this password to the cleaner. They can log in at /cleaner/login.</p>
-      <button class="primary" onclick="approveApplicant(${id})">Create cleaner account</button>
+      <div class="modal-head"><div><h2>Approve ${esc(applicant.name)}</h2><p>This creates a cleaner profile and emails a secure setup link.</p></div><button class="modal-close" onclick="closeApprove()">×</button></div>
+      <p class="form-message">The cleaner will create their own password. No plain-text passwords are stored or shared.</p>
+      <button class="primary" onclick="approveApplicant(${id})">Approve & send invite</button>
     </section>
   </div>`;
 }
@@ -110,18 +109,17 @@ function openApprove(id){
 function closeApprove(){document.querySelector('#approveModal').innerHTML=''}
 
 async function approveApplicant(id){
-  const password = document.querySelector('#cleanerPassword').value;
   const response = await fetch(`/api/cleaner-applicants/${id}/approve`, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({password})
+    body:JSON.stringify({})
   });
   const result = await response.json();
   if(!response.ok) return alert(result.error || 'Could not approve applicant.');
+  if(result.invite?.setup_link) alert(`Email preview mode: send this setup link to the cleaner:\n\n${result.invite.setup_link}`);
   closeApprove();
   await load();
 }
-
 document.querySelector('#importCsv').addEventListener('click', async () => {
   const csv = document.querySelector('#csvInput').value;
   const message = document.querySelector('#importMessage');
@@ -145,3 +143,4 @@ document.querySelector('#importCsv').addEventListener('click', async () => {
 
 renderLinks();
 load();
+

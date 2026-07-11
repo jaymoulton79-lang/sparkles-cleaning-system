@@ -14,7 +14,7 @@ async function load(){
     if(!r.ok)throw new Error(bookings.error||'Could not load bookings.');
     document.querySelector('#total').textContent=bookings.length;
     document.querySelector('#newCount').textContent=bookings.filter(x=>x.status==='New').length;
-    document.querySelector('#assignedCount').textContent=bookings.filter(x=>['Assigned','Accepted','In Progress'].includes(x.status)).length;
+    document.querySelector('#assignedCount').textContent=bookings.filter(x=>['Assigned','Accepted','On My Way','In Progress'].includes(x.status)).length;
     if(!bookings.length){
       document.querySelector('#list').innerHTML='<div class="empty"><strong>No Sparkles bookings yet</strong><br>Your first request will appear here.</div>';
       return;
@@ -26,7 +26,7 @@ async function load(){
         <td><strong>${prettyDate(b.preferred_date)}</strong><div class="date-sub">${esc(b.preferred_time)}</div></td>
         <td>${esc(b.postcode)}</td>
         <td>
-          <span class="badge ${['Assigned','Accepted','In Progress'].includes(b.status)?'status-assigned':''}">${esc(b.status)}</span>
+          <span class="badge ${['Assigned','Accepted','On My Way','In Progress'].includes(b.status)?'status-assigned':''}">${esc(b.status)}</span>
           <div class="payment-badge ${paymentStatusClass(b.payment_status)}">${esc(b.payment_status)}</div>
           ${b.cleaner_name?`<div class="assigned-to">${esc(b.cleaner_name)}</div>`:''}
           ${b.deposit_checkout_url&&b.payment_status==='Deposit Due'?`<br><a class="balance-link" href="${esc(b.deposit_checkout_url)}" target="_blank">Open deposit checkout</a>`:''}
@@ -41,7 +41,7 @@ async function load(){
         <div class="detail-block"><span>Submitted</span>${new Date(b.created_at).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'})}</div>
         <div class="detail-block"><span>Customer notes</span>${esc(b.notes)||'No notes provided'}</div>
         <div class="detail-block"><span>Customer photos</span>${gallery(b.photos)}</div>
-        <div class="detail-block"><span>Cleaner timestamps</span>Accepted: ${stamp(b.accepted_at)}<br>Started: ${stamp(b.started_at)}<br>Completed: ${stamp(b.completed_at)}</div>
+        <div class="detail-block"><span>Cleaner timestamps</span>Accepted: ${stamp(b.accepted_at)}<br>On my way: ${stamp(b.on_my_way_at)}<br>Started: ${stamp(b.started_at)}<br>Completed: ${stamp(b.completed_at)}</div>
         <div class="detail-block"><span>Cleaner notes</span>${esc(b.cleaner_notes)||'No cleaner notes yet'}</div>
         <div class="detail-block"><span>Before photos</span>${gallery(b.before_photos)}</div>
         <div class="detail-block"><span>After photos</span>${gallery(b.after_photos)}</div>
@@ -138,4 +138,3 @@ function backdropClose(e){if(e.target.classList.contains('modal-backdrop'))close
 document.querySelector('#adminLogout')?.addEventListener('click',async()=>{await fetch('/api/auth/logout',{method:'POST'});location.href='/admin/login'});
 load();
 setInterval(load,5000);
-

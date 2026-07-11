@@ -1,7 +1,79 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><title>Cleaners | Sparkles Cleaning Agency</title><link rel="stylesheet" href="/styles.css"></head><body><div class="topbar"></div><header><nav class="nav"><a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Agency<small>Automated cleaning agency</small></span></a><div class="admin-nav">
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Cleaners | Sparkles Cleaning Agency</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="topbar"></div>
+  <header>
+    <nav class="nav">
+      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Agency<small>Automated cleaning agency</small></span></a>
+      <div class="admin-nav">
         <a href="/admin/launch">Launch Console</a>
         <a href="/admin/bookings">Bookings</a>
         <a href="/admin/cleaner-applicants">Applicants</a>
         <a href="/admin/ai-recruitment">AI Recruitment</a>
         <a class="active" href="/admin/cleaners">Cleaners</a>
-      </div></nav></header><main class="dash"><div class="dash-head"><div><h1>Cleaners</h1><p>Manage the trusted Sparkles cleaner network.</p></div><div class="mini-actions"><a class="primary-small" href="/admin/cleaner-applicants">Applicants</a><a class="primary-small" href="/cleaner">+ Add cleaner</a></div></div><section class="stats"><div class="stat"><span>Total cleaners</span><strong id="cleanerTotal">—</strong></div><div class="stat"><span>DBS verified</span><strong id="dbsTotal">—</strong></div><div class="stat"><span>Insurance verified</span><strong id="insuranceTotal">—</strong></div></section><section class="cleaner-grid" id="cleanerList"><div class="empty card-wide">Loading cleaners…</div></section></main><script src="/cleaners-admin.js?v=20260709-password-reset"></script></body></html>
+      </div>
+    </nav>
+  </header>
+  <main class="dash">
+    <div class="dash-head">
+      <div>
+        <h1>Cleaners</h1>
+        <p>Manage trusted Sparkles cleaners, invitations and activation.</p>
+      </div>
+      <div class="mini-actions">
+        <a class="primary-small" href="/admin/cleaner-applicants">Applicants</a>
+        <button class="primary-small" id="showCreateCleaner" type="button">+ Invite cleaner</button>
+      </div>
+    </div>
+
+    <section class="card-wide cleaner-create-panel" id="createCleanerPanel" hidden>
+      <div class="card-head">
+        <div>
+          <h2>Invite a cleaner</h2>
+          <p class="card-sub">Create the profile and send a secure one-time setup link.</p>
+        </div>
+      </div>
+      <div id="createCleanerMessage" class="alert"></div>
+      <form id="createCleanerForm">
+        <div class="grid">
+          <div class="field"><label>Name</label><input name="name" required autocomplete="name"></div>
+          <div class="field"><label>Email</label><input name="email" required type="email" autocomplete="email"></div>
+          <div class="field"><label>Phone</label><input name="phone" required type="tel" autocomplete="tel"></div>
+          <div class="field"><label>Postcode</label><input name="postcode" required autocomplete="postal-code"></div>
+          <div class="field"><label>Travel radius</label><input name="travel_radius" required type="number" min="1" max="50" value="20"></div>
+          <div class="field"><label>Hourly rate</label><input name="hourly_rate" required type="number" min="1" step="0.50" value="15"></div>
+          <div class="field"><label>DBS status</label><select name="dbs_status" required><option>Verified</option><option>Certificate available</option><option>In progress</option><option>Not held</option></select></div>
+          <div class="field"><label>Insurance status</label><select name="insurance_status" required><option>Verified</option><option>Policy available</option><option>In progress</option><option>Not held</option></select></div>
+        </div>
+        <div class="editor-block">
+          <label>Availability</label>
+          <div class="edit-pills form-pills" data-create-field="availability"></div>
+        </div>
+        <div class="editor-block">
+          <label>Services offered</label>
+          <div class="edit-pills form-pills" data-create-field="services"></div>
+        </div>
+        <div class="mini-actions">
+          <button class="primary-small" type="submit">Create & send invitation</button>
+          <button class="row-button secondary" id="cancelCreateCleaner" type="button">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><span>Active cleaners</span><strong id="cleanerTotal">—</strong></div>
+      <div class="stat"><span>Activated</span><strong id="activatedTotal">—</strong></div>
+      <div class="stat"><span>Pending setup</span><strong id="pendingTotal">—</strong></div>
+    </section>
+    <section class="cleaner-grid" id="cleanerList"><div class="empty card-wide">Loading cleaners…</div></section>
+  </main>
+  <script src="/cleaners-admin.js?v=20260711-invites"></script>
+</body>
+</html>
