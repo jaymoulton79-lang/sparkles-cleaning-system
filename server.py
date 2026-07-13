@@ -2337,6 +2337,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.assign_cleaner(path)
+        if path.startswith("/api/bookings/") and path.endswith("/auto-assign"):
+            if not self.require_admin():
+                return
+            return self.auto_assign_cleaner(path)
         if path != "/api/bookings":
             return self.send_error(404)
         length = int(self.headers.get("Content-Length", "0"))
@@ -4342,6 +4346,31 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "status": "Assigned", "cleaner_name": cleaner["name"]})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.send_json({"error": "Invalid assignment request."}, 400)
+
+    def auto_assign_cleaner(self, path):
+        try:
+            booking_id = int(path.split("/")[3])
+            with connect() as conn:
+                booking_row = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+            if not booking_row:
+                return self.send_json({"error": "Booking not found."}, 404)
+            booking = dict(booking_row)
+            matches = suitable_cleaners(booking)
+            if not matches:
+                return self.send_json({"error": "No eligible cleaners found. Add an active cleaner with a completed login setup, matching availability, matching services and travel coverage."}, 404)
+            cleaner = matches[0]
+            with connect() as conn:
+                if cleaner_has_conflict(conn, cleaner["id"], booking["preferred_date"], booking["preferred_time"], booking_id):
+                    return self.send_json({"error": f"{cleaner['name']} is already booked at that time."}, 409)
+                conn.execute("UPDATE bookings SET cleaner_id=?, status='Assigned', assigned_at=? WHERE id=?", (cleaner["id"], datetime.now(timezone.utc).isoformat(), booking_id))
+                updated = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+            automation.timeline(booking_id, "Cleaner auto assigned", f"{cleaner['name']} was auto assigned as the nearest eligible cleaner ({cleaner['distance']} miles away).")
+            safe_send_cleaner_job_details_email(booking_id)
+            automation.enqueue(booking_id, "send_confirmations")
+            schedule_booking_reminder(dict(updated))
+            self.send_json({"ok": True, "status": "Assigned", "cleaner_id": cleaner["id"], "cleaner_name": cleaner["name"], "distance": cleaner["distance"]})
+        except (ValueError, TypeError, json.JSONDecodeError):
+            self.send_json({"error": "Invalid auto assignment request."}, 400)
 
     def cleaner_job_action(self, path):
         session = self.current_session()

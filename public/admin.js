@@ -33,7 +33,7 @@ async function load(){
           ${b.status==='Completed'&&b.payment_status!=='Paid in Full'?`<br><button class="row-button balance-link" onclick="startBalancePayment(${b.id},this)">Pay balance online</button>`:''}
           ${b.status==='Completed'&&b.payment_status!=='Paid in Full'?`<br><button class="row-button" onclick="resendFinalInvoice(${b.id},this)">Resend final email</button>`:''}
         </td>
-        <td>${b._source==='stripe.checkout.sessions'?'<button class="assign-button" disabled>Recovered payment</button>':`<button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button>`}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick='archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})'>Archive test</button></td>
+        <td>${bookingActions(b)}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick='archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})'>Archive test</button></td>
       </tr>
       <tr class="detail-row" id="detail-${i}"><td class="detail" colspan="6"><div class="detail-grid">
         <div class="detail-block"><span>Reference</span><strong>${esc(b.reference)}</strong></div>
@@ -57,6 +57,11 @@ function paymentHistory(b){
 }
 
 function toggle(i){document.querySelector(`#detail-${i}`).classList.toggle('open')}
+
+function bookingActions(b){
+  if(b._source==='stripe.checkout.sessions')return '<button class="assign-button" disabled>Recovered payment</button>';
+  return `<button class="assign-button" onclick="openAssign(${b.id})">${b.cleaner_id?'Reassign':'Assign Cleaner'}</button><button class="row-button auto-assign-button" onclick="autoAssign(${b.id},this)">Auto assign nearest</button>`;
+}
 
 async function startBalancePayment(id,button){
   button.disabled=true;
@@ -131,6 +136,22 @@ async function assign(bookingId,cleanerId,button){
     const result=await r.json();if(!r.ok)throw new Error(result.error);
     closeModal();await load();
   }catch(e){button.disabled=false;button.textContent='Try again';alert(e.message)}
+}
+
+async function autoAssign(bookingId,button){
+  button.disabled=true;
+  const original=button.textContent;
+  button.textContent='Finding nearest...';
+  try{
+    const r=await fetch(`/api/bookings/${bookingId}/auto-assign`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const result=await r.json();if(!r.ok)throw new Error(result.error||'Could not auto assign a cleaner.');
+    button.textContent=`Assigned ${result.cleaner_name}`;
+    await load();
+  }catch(e){
+    button.disabled=false;
+    button.textContent=original;
+    alert(e.message);
+  }
 }
 
 function closeModal(){document.querySelector('#modalRoot').innerHTML=''}
