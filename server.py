@@ -139,6 +139,10 @@ def normalise_password_input(password):
     return str(password or "").strip()
 
 
+def normalise_email_input(email):
+    return re.sub(r"\s+", "", str(email or "")).lower()
+
+
 def hash_password(password):
     password = normalise_password_input(password)
     if not password or len(password) < 8:
@@ -158,6 +162,23 @@ def verify_password(password, stored):
         return hmac.compare_digest(digest, expected)
     except (ValueError, TypeError):
         return False
+
+
+def find_cleaner_for_credentials(conn, email, password):
+    email = normalise_email_input(email)
+    password = normalise_password_input(password)
+    cleaner_rows = conn.execute(
+        """SELECT id,email,password_hash,active FROM cleaners
+        WHERE lower(trim(email))=lower(?)
+        ORDER BY active DESC,
+        CASE WHEN password_hash IS NOT NULL AND password_hash<>'' THEN 1 ELSE 0 END DESC,
+        id DESC""",
+        (email,),
+    ).fetchall()
+    for candidate in cleaner_rows:
+        if candidate["password_hash"] and verify_password(password, candidate["password_hash"]):
+            return candidate
+    return None
 
 
 def token_hash(token):
@@ -2686,22 +2707,10 @@ class Handler(BaseHTTPRequestHandler):
     def login_cleaner(self):
         try:
             data = self.read_json()
-            email = data.get("email", "").strip().lower()
+            email = normalise_email_input(data.get("email", ""))
             password = normalise_password_input(data.get("password", ""))
             with connect() as conn:
-                cleaner_rows = conn.execute(
-                    """SELECT id,email,password_hash,active FROM cleaners
-                    WHERE lower(email)=lower(?)
-                    ORDER BY active DESC,
-                    CASE WHEN password_hash IS NOT NULL AND password_hash<>'' THEN 1 ELSE 0 END DESC,
-                    id DESC""",
-                    (email,),
-                ).fetchall()
-            cleaner = None
-            for candidate in cleaner_rows:
-                if candidate["password_hash"] and verify_password(password, candidate["password_hash"]):
-                    cleaner = candidate
-                    break
+                cleaner = find_cleaner_for_credentials(conn, email, password)
             if not cleaner:
                 return self.send_json({"error": "Invalid email or password."}, 401)
             if not cleaner["active"]:
@@ -2759,7 +2768,7 @@ class Handler(BaseHTTPRequestHandler):
             elif role == "cleaner":
                 with connect() as conn:
                     row = conn.execute(
-                        """SELECT id FROM cleaners WHERE lower(email)=lower(?)
+                        """SELECT id FROM cleaners WHERE lower(trim(email))=lower(?)
                         ORDER BY active DESC,
                         CASE WHEN password_hash IS NOT NULL AND password_hash<>'' THEN 1 ELSE 0 END DESC,
                         id DESC""",
@@ -2798,13 +2807,16 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_PASSWORD_HASH',?,?,?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (password_hash, 1, utcnow().isoformat()))
                 elif reset["role"] == "cleaner":
-                    cleaner = conn.execute("SELECT id,email FROM cleaners WHERE id=? AND lower(email)=lower(?)", (reset["subject_id"], reset["email"])).fetchone()
+                    reset_email = normalise_email_input(reset["email"])
+                    cleaner = conn.execute("SELECT id,email FROM cleaners WHERE id=? AND lower(trim(email))=lower(?)", (reset["subject_id"], reset_email)).fetchone()
                     if not cleaner:
                         return self.send_json({"error": "Cleaner account for this setup link was not found. Ask the owner to send a new invite."}, 400)
                     conn.execute("UPDATE cleaners SET password_hash=? WHERE id=?", (password_hash, reset["subject_id"]))
                     updated = conn.execute("SELECT password_hash FROM cleaners WHERE id=?", (reset["subject_id"],)).fetchone()
                     if not updated or not verify_password(password, updated["password_hash"]):
                         return self.send_json({"error": "Cleaner password could not be saved. Ask the owner to send a new invite."}, 500)
+                    if not find_cleaner_for_credentials(conn, reset_email, password):
+                        return self.send_json({"error": "Cleaner password was saved but login verification failed. Ask the owner to resend the invite."}, 500)
                 else:
                     conn.execute("UPDATE customers SET password_hash=? WHERE id=?", (password_hash, reset["subject_id"]))
                 conn.execute("UPDATE password_reset_tokens SET used_at=? WHERE token_hash=?", (utcnow().isoformat(), token_hash(token)))
