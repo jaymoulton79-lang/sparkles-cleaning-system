@@ -11,6 +11,21 @@ async function readJsonResponse(response) {
   }
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('The customer portal took too long to respond. Please refresh and try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function setMode() {
   document.querySelectorAll('.register-only').forEach(x => x.style.display = register ? 'flex' : 'none');
   document.querySelectorAll('.register-only input').forEach(input => {
@@ -54,13 +69,14 @@ function bookingRow(b) {
 }
 
 async function showPortal() {
-  const r = await fetch('/api/customer/bookings', { credentials: 'same-origin', cache: 'no-store' }), bookings = await readJsonResponse(r);
+  const r = await fetchWithTimeout('/api/customer/bookings', { credentials: 'same-origin', cache: 'no-store' }), bookings = await readJsonResponse(r);
   if (!r.ok) return false;
   document.querySelector('#authPanel').hidden = true;
   document.querySelector('#portal').hidden = false;
   document.querySelector('#bookings').innerHTML = bookings.length
     ? `<table><thead><tr><th>Reference</th><th>Clean</th><th>Date</th><th>Status</th><th>Payments</th></tr></thead><tbody>${bookings.map(bookingRow).join('')}</tbody></table>`
     : '<div class="empty">No Sparkles bookings yet. Book with the same email address and they will appear here.</div>';
+  document.querySelector('#portal').scrollIntoView({ block: 'start', behavior: 'smooth' });
   return true;
 }
 
@@ -96,7 +112,7 @@ form.onsubmit = async e => {
   button.textContent = register ? 'Creating account...' : 'Logging in...';
   try {
     const payload = Object.fromEntries(new FormData(form));
-    const r = await fetch(endpoint, {
+    const r = await fetchWithTimeout(endpoint, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },

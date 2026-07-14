@@ -2305,23 +2305,29 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, IndexError):
                 return self.send_json({"error": "Invalid booking."}, 400)
         if path == "/api/customer/bookings":
-            session = self.current_session()
-            if not session or session["role"] != "customer":
-                return self.send_json({"error": "Customer login required."}, 401)
-            with connect() as conn:
-                rows = conn.execute("""SELECT b.*, c.name AS cleaner_name, c.phone AS cleaner_phone
-                    FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
-                    WHERE (lower(b.email)=lower(?) OR b.customer_id=?)
-                    AND b.archived_at IS NULL AND COALESCE(b.is_test,0)=0
-                    ORDER BY b.id DESC""", (session["email"], session["subject_id"])).fetchall()
-            bookings = []
-            for row in rows:
-                item = dict(row)
-                item["photos"] = json.loads(item["photos"])
-                with connect() as payment_conn:
-                    item["payments"] = [dict(payment) for payment in payment_conn.execute("SELECT * FROM payments WHERE booking_id=? ORDER BY id DESC", (item["id"],)).fetchall()]
-                bookings.append(item)
-            return self.send_json(bookings)
+            try:
+                session = self.current_session()
+                if not session or session["role"] != "customer":
+                    return self.send_json({"error": "Customer login required."}, 401)
+                with connect() as conn:
+                    rows = conn.execute("""SELECT b.*, c.name AS cleaner_name, c.phone AS cleaner_phone
+                        FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
+                        WHERE (lower(b.email)=lower(?) OR b.customer_id=?)
+                        AND b.archived_at IS NULL AND COALESCE(b.is_test,0)=0
+                        ORDER BY b.id DESC""", (session["email"], session["subject_id"])).fetchall()
+                    bookings = []
+                    for row in rows:
+                        item = dict(row)
+                        try:
+                            item["photos"] = json.loads(item.get("photos") or "[]")
+                        except (TypeError, json.JSONDecodeError):
+                            item["photos"] = []
+                        item["payments"] = [dict(payment) for payment in conn.execute("SELECT * FROM payments WHERE booking_id=? ORDER BY id DESC", (item["id"],)).fetchall()]
+                        bookings.append(item)
+                return self.send_json(bookings)
+            except Exception as error:
+                logger.exception(json.dumps({"event": "customer_bookings_failed", "error": str(error)}))
+                return self.send_json({"error": "Customer bookings could not be loaded. Please try again."}, 500)
         if path == "/api/cleaner/jobs":
             session = self.current_session()
             if not session or session["role"] != "cleaner":

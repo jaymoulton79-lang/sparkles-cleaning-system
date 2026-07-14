@@ -341,6 +341,19 @@ a.sp-button{
 .sparkles-customer-flow .sp-nav-inner{max-width:1180px;align-items:center}
 .sparkles-customer-flow .customer-flow-card{animation:sp-fade-up .36s var(--sp-ease) both}
 .sparkles-customer-flow .sp-logo-img{width:76px;height:76px;border-radius:24px}
+.sparkles-customer-portal{scroll-margin-top:120px}
+
+@media(max-width:800px){
+  .sparkles-customer-portal .customer-bookings-card tr:not(.detail-row)>td:first-child{
+    grid-column:1/-1;
+    padding-bottom:13px;
+    border-bottom:1px solid var(--line);
+  }
+  .sparkles-customer-portal .customer-bookings-card tr:not(.detail-row)>td:nth-child(2):before{content:'Clean'}
+  .sparkles-customer-portal .customer-bookings-card tr:not(.detail-row)>td:nth-child(3):before{content:'Preferred'}
+  .sparkles-customer-portal .customer-bookings-card tr:not(.detail-row)>td:nth-child(4):before{content:'Status'}
+  .sparkles-customer-portal .customer-bookings-card tr:not(.detail-row)>td:nth-child(5):before{content:'Payments'}
+}
 
 .sparkles-owner-page .owner-page{max-width:1240px}
 .sparkles-owner-page .owner-hero{background:radial-gradient(circle at 20% 0%,rgba(74,141,255,.3),transparent 32%),linear-gradient(135deg,#020B20,#06183B 55%,#0D3F9C);color:var(--sp-white);border-radius:var(--sp-radius-xl);padding:34px;box-shadow:var(--sp-shadow-lg);align-items:center}
