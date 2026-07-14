@@ -1958,6 +1958,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"status": "ready", "database": "ok"})
             except DB_ERROR_TYPES:
                 return self.send_json({"status": "not_ready", "database": "error"}, 503)
+        if path in ("/login", "/login/"):
+            return self.redirect("/login.html")
         if path == "/api/auth/me":
             session = self.current_session()
             return self.send_json({"authenticated": bool(session), "session": session})
@@ -2133,7 +2135,10 @@ class Handler(BaseHTTPRequestHandler):
             if not session or session["role"] != "cleaner":
                 return self.send_json({"error": "Cleaner login required."}, 401)
             with connect() as conn:
-                rows = conn.execute("SELECT * FROM bookings WHERE cleaner_id=? AND archived_at IS NULL ORDER BY preferred_date DESC, preferred_time DESC", (session["subject_id"],)).fetchall()
+                rows = conn.execute("""SELECT b.*, c.hourly_rate AS cleaner_hourly_rate
+                    FROM bookings b JOIN cleaners c ON c.id=b.cleaner_id
+                    WHERE b.cleaner_id=? AND b.archived_at IS NULL
+                    ORDER BY b.preferred_date DESC, b.preferred_time DESC""", (session["subject_id"],)).fetchall()
             bookings = []
             for row in rows:
                 item = dict(row)

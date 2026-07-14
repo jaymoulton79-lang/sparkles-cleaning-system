@@ -5,6 +5,7 @@ const esc = value => {
 };
 
 const money = pennies => `£${(Number(pennies || 0) / 100).toFixed(2)}`;
+const pounds = value => `£${Number(value || 0).toFixed(2)}`;
 const pretty = date => date ? new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not set';
 const stamp = value => value ? new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -16,14 +17,30 @@ function paymentLine(job) {
   return esc(job.payment_status || 'Payment status not set');
 }
 
-function estimateDuration(job) {
+function estimatedHours(job) {
   const bedrooms = Number(job.bedrooms || 0);
   const bathrooms = Number(job.bathrooms || 0);
   const clean = String(job.clean_type || '').toLowerCase();
   let hours = 1.5 + bedrooms * 0.45 + bathrooms * 0.35;
   if (clean.includes('deep')) hours += 1.25;
   if (clean.includes('end of tenancy')) hours += 2;
-  return `${Math.max(2, Math.round(hours * 2) / 2)} hours approx.`;
+  return Math.max(2, Math.round(hours * 2) / 2);
+}
+
+function estimateDuration(job) {
+  return `${estimatedHours(job)} hours approx.`;
+}
+
+function payoutSummary(job) {
+  const hours = estimatedHours(job);
+  const rate = Number(job.cleaner_hourly_rate || 0);
+  const payout = hours * rate;
+  const status = job.status === 'Completed' ? 'Pending owner payment' : 'Not payable until job is completed';
+  return `
+    <strong>${pounds(payout)}</strong>
+    <br>${hours} hrs × ${pounds(rate)}/hr
+    <br><span class="payout-status">${esc(status)}</span>
+    <br><span class="date-sub">Paid manually by Sparkles owner for now.</span>`;
 }
 
 function mapsUrl(job) {
@@ -84,7 +101,8 @@ function jobCard(job) {
 
       <div class="detail-grid cleaner-detail-grid">
         <div class="detail-block"><span>Service</span><strong>${esc(job.clean_type)}</strong><br>${Number(job.bedrooms || 0)} bed · ${Number(job.bathrooms || 0)} bath<br>Estimated duration: ${estimateDuration(job)}</div>
-        <div class="detail-block"><span>Payment</span><strong>${paymentLine(job)}</strong><br>Deposit: ${money(job.deposit_amount)} · Total: ${money(job.total_amount)}</div>
+        <div class="detail-block"><span>Customer payment</span><strong>${paymentLine(job)}</strong><br>Deposit: ${money(job.deposit_amount)} · Total: ${money(job.total_amount)}</div>
+        <div class="detail-block cleaner-payout-block"><span>Your estimated payout</span>${payoutSummary(job)}</div>
         <div class="detail-block"><span>Customer notes & access instructions</span>${esc(job.notes) || 'No notes provided'}</div>
         <div class="detail-block"><span>Timestamps</span>Accepted: ${stamp(job.accepted_at)}<br>On my way: ${stamp(job.on_my_way_at)}<br>Started: ${stamp(job.started_at)}<br>Completed: ${stamp(job.completed_at)}</div>
         <div class="detail-block"><span>Before photos</span>${photoList(job.before_photos)}</div>
