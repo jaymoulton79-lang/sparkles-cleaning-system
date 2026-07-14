@@ -38,3 +38,249 @@ input:focus,select:focus,textarea:focus{box-shadow:0 0 0 5px rgba(22,119,255,.13
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}@keyframes floatIn{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:860px){.sparkles-login-shell{grid-template-columns:1fr;gap:26px;padding:36px 18px}.login-card{justify-self:stretch;width:100%}.login-copy h1{font-size:42px}.login-copy p{font-size:16px}}
 @media(max-width:520px){.login-trust-row{display:none}.login-card{padding:24px;border-radius:24px}.login-options{align-items:flex-start;flex-direction:column}.sparkles-wordmark{font-size:16px}.sparkles-logo-mark{width:42px;height:42px;border-radius:15px}.login-copy h1{font-size:36px}}
+
+/* Sparkles Premium Platform Finish
+   Shared UI layer only: no booking, payment, email, auth, database or API behaviour lives here. */
+:root{
+  --premium-navy:#020B20;
+  --premium-navy-2:#071A3D;
+  --premium-blue:#1677FF;
+  --premium-blue-2:#60A5FA;
+  --premium-cyan:#38BDF8;
+  --premium-gold:#F4C430;
+  --premium-bg:#F7FAFF;
+  --premium-card:rgba(255,255,255,.92);
+  --premium-card-solid:#FFFFFF;
+  --premium-border:rgba(203,213,225,.78);
+  --premium-muted:#64748B;
+  --premium-shadow:0 24px 70px rgba(15,23,42,.12);
+  --premium-shadow-soft:0 12px 34px rgba(15,23,42,.08);
+  --premium-shadow-blue:0 18px 44px rgba(22,119,255,.26);
+  --premium-radius:26px;
+  --premium-radius-sm:18px;
+  --premium-ease:cubic-bezier(.2,.8,.2,1);
+}
+html{background:var(--premium-bg)}
+body{
+  background:
+    radial-gradient(circle at 12% -10%,rgba(22,119,255,.20),transparent 34%),
+    radial-gradient(circle at 90% 0%,rgba(56,189,248,.12),transparent 28%),
+    linear-gradient(180deg,#F8FBFF 0%,#F5F8FF 42%,#FFFFFF 100%)!important;
+  text-rendering:optimizeLegibility;
+}
+.topbar{
+  height:4px;
+  background:linear-gradient(90deg,var(--premium-blue),var(--premium-cyan),var(--premium-gold),var(--premium-navy));
+}
+header,.sp-nav{
+  background:rgba(255,255,255,.82)!important;
+  border-bottom:1px solid rgba(226,232,240,.82)!important;
+  backdrop-filter:blur(20px);
+  box-shadow:0 1px 0 rgba(15,23,42,.04),0 22px 60px rgba(15,23,42,.06)!important;
+}
+.nav{max-width:1320px;padding:22px 28px}
+.brand,.sp-wordmark,.sparkles-wordmark{
+  gap:16px;
+  color:var(--premium-navy);
+  letter-spacing:-.055em;
+}
+.brand-mark,.sparkles-logo-mark{
+  width:58px!important;
+  height:58px!important;
+  border-radius:20px!important;
+  background:
+    linear-gradient(rgba(2,11,32,.08),rgba(2,11,32,.08)),
+    url("/assets/sparkles-premium-logo.jpg") center/cover no-repeat!important;
+  color:transparent!important;
+  overflow:hidden;
+  box-shadow:0 18px 42px rgba(2,11,32,.24),0 0 0 1px rgba(255,255,255,.9)!important;
+}
+.brand:hover .brand-mark,.sparkles-wordmark:hover .sparkles-logo-mark{transform:translateY(-2px) scale(1.02)}
+.brand small,.sp-wordmark small,.sparkles-wordmark small{
+  color:var(--premium-muted);
+  letter-spacing:.12em;
+}
+.admin-nav{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.admin-nav a,.admin-nav button,.sp-nav-link,.admin-link{
+  border-radius:999px!important;
+  padding:10px 13px!important;
+  color:#526176!important;
+  font-weight:850!important;
+  text-decoration:none!important;
+  transition:background .18s var(--premium-ease),color .18s var(--premium-ease),transform .18s var(--premium-ease),box-shadow .18s var(--premium-ease);
+}
+.admin-nav a:hover,.admin-nav button:hover,.sp-nav-link:hover,.admin-link:hover,
+.admin-nav a.active,.sp-nav-link.active{
+  background:#EEF6FF!important;
+  color:var(--premium-blue)!important;
+  transform:translateY(-1px);
+}
+.dash,.owner-page,.calendar-page,.automation-page,.cleaner-page,.receptionist-page,.setup-page,.recruit-page{
+  width:min(1280px,100%);
+  margin-inline:auto;
+}
+.dash-head,.panel-head,.card-head{
+  gap:18px;
+}
+h1,h2,h3{
+  color:var(--premium-navy);
+  letter-spacing:-.055em;
+}
+.dash h1,.owner-hero h1,.intro h1{
+  letter-spacing:-.07em;
+}
+.eyebrow,.sp-kicker,.section-title,.stat span,.owner-card span,.detail-block span{
+  color:var(--premium-blue)!important;
+  letter-spacing:.14em!important;
+}
+.card,.stat,.table-card,.owner-card,.owner-panel,.cleaner-card,.job-card,.payment-card,.accept-card,.modal,.calendar-card,.availability-panel,.ai-card,.source-card,.recruit-form,.recruit-links,.recruit-import,.applicant-card,.conversation-list,.conversation-panel,.sparkles-chat,.mini-item,.detail{
+  background:var(--premium-card)!important;
+  border:1px solid var(--premium-border)!important;
+  border-radius:var(--premium-radius)!important;
+  box-shadow:var(--premium-shadow-soft)!important;
+  backdrop-filter:blur(14px);
+  transition:transform .18s var(--premium-ease),box-shadow .18s var(--premium-ease),border-color .18s var(--premium-ease),background .18s var(--premium-ease);
+}
+.card:hover,.stat:hover,.owner-card:hover,.owner-panel:hover,.cleaner-card:hover,.job-card:hover,.payment-card:hover,.accept-card:hover,.calendar-card:hover,.ai-card:hover,.applicant-card:hover,.mini-item:hover{
+  transform:translateY(-2px);
+  border-color:rgba(22,119,255,.28)!important;
+  box-shadow:var(--premium-shadow)!important;
+}
+.stat,.owner-card,.sp-kpi-card{
+  position:relative;
+  overflow:hidden;
+}
+.stat:before,.owner-card:before,.sp-kpi-card:before{
+  content:"";
+  position:absolute;
+  inset:0 0 auto;
+  height:4px;
+  background:linear-gradient(90deg,var(--premium-blue),var(--premium-cyan),var(--premium-gold));
+}
+.stat strong,.owner-card strong,.sp-kpi-value,.rate{
+  color:var(--premium-navy)!important;
+  letter-spacing:-.05em;
+}
+button,.submit,.primary-small,.refresh-button,.pay-button,.assign-button,.match button,.job-actions button:not(.secondary),.cleaner-note-box button:not(.secondary),.button-link.pay-button{
+  border-radius:16px!important;
+}
+.submit,.primary-small,.refresh-button,.pay-button,.assign-button,.match button,.job-actions button:not(.secondary),.cleaner-note-box button:not(.secondary),.button-link.pay-button{
+  background:linear-gradient(135deg,var(--premium-blue),#4EA3FF)!important;
+  color:#fff!important;
+  border:0!important;
+  box-shadow:var(--premium-shadow-blue)!important;
+  font-weight:900!important;
+  transition:transform .18s var(--premium-ease),box-shadow .18s var(--premium-ease),filter .18s var(--premium-ease);
+}
+.submit:hover,.primary-small:hover,.refresh-button:hover,.pay-button:hover,.assign-button:hover,.match button:hover,.job-actions button:not(.secondary):hover,.cleaner-note-box button:not(.secondary):hover,.button-link.pay-button:hover{
+  transform:translateY(-2px);
+  box-shadow:0 24px 54px rgba(22,119,255,.34)!important;
+  filter:saturate(1.06);
+}
+.secondary,.row-button,.back,.sp-button-secondary{
+  color:var(--premium-blue)!important;
+}
+.secondary{
+  border-color:#D5E5FF!important;
+  box-shadow:0 8px 22px rgba(15,23,42,.05);
+}
+input,select,textarea{
+  min-height:48px;
+  border-radius:16px!important;
+  border-color:#CBD5E1!important;
+  background:rgba(255,255,255,.96)!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
+}
+textarea{line-height:1.55}
+input:focus,select:focus,textarea:focus{
+  border-color:var(--premium-blue)!important;
+  box-shadow:0 0 0 5px rgba(22,119,255,.13)!important;
+}
+table{
+  border-collapse:separate;
+  border-spacing:0;
+}
+th{
+  background:#F8FBFF!important;
+  color:#64748B!important;
+  font-weight:950!important;
+}
+td{border-top:1px solid #EEF2F7!important}
+.badge,.payment-badge,.status-pill,.chip,.match-chips span,.login-trust-row span{
+  border-radius:999px!important;
+  font-weight:900!important;
+}
+.badge,.status-new{background:#EEF6FF!important;color:var(--premium-blue)!important}
+.status-assigned,.status-accepted,.status-on-my-way,.payment-paid,.sp-badge-success{background:#ECFDF5!important;color:#15803D!important}
+.payment-due,.status-warning,.sp-badge-warning{background:#FFFBEB!important;color:#B45309!important}
+.empty,.empty-mini,.no-matches,.match-error{
+  border:1px dashed #C9D8EE!important;
+  border-radius:var(--premium-radius)!important;
+  background:linear-gradient(180deg,#FFFFFF,#F5F9FF)!important;
+  color:var(--premium-muted)!important;
+}
+.empty:before,.empty-mini:before,.no-matches:before{
+  content:"✦";
+  display:block;
+  color:var(--premium-blue);
+  font-size:30px;
+  margin-bottom:8px;
+}
+.sparkles-chat-button{
+  right:22px!important;
+  bottom:22px!important;
+  border-radius:999px!important;
+  background:linear-gradient(135deg,var(--premium-navy),var(--premium-blue))!important;
+  box-shadow:0 22px 56px rgba(2,11,32,.28),0 0 0 1px rgba(255,255,255,.72)!important;
+}
+.sparkles-chat-head,.source-card{
+  background:radial-gradient(circle at 15% 0%,rgba(96,165,250,.34),transparent 36%),linear-gradient(135deg,var(--premium-navy),#0D3F9C)!important;
+}
+.photos img,.photo-grid img{
+  border-radius:14px!important;
+  box-shadow:0 8px 22px rgba(15,23,42,.12);
+}
+.modal-backdrop{
+  backdrop-filter:blur(10px);
+  background:rgba(2,11,32,.42)!important;
+}
+.modal{
+  background:rgba(255,255,255,.96)!important;
+}
+footer,.sp-footer{
+  color:var(--premium-muted)!important;
+}
+@media(max-width:800px){
+  .nav,.sp-nav-inner{
+    padding:16px 18px!important;
+  }
+  .brand-mark,.sparkles-logo-mark{
+    width:48px!important;
+    height:48px!important;
+    border-radius:17px!important;
+  }
+  .admin-nav{
+    width:100%;
+    gap:6px;
+  }
+  .admin-nav a,.admin-nav button,.sp-nav-link{
+    padding:9px 10px!important;
+    font-size:12px!important;
+  }
+  .card,.stat,.table-card,.owner-card,.owner-panel,.cleaner-card,.job-card,.payment-card,.accept-card,.modal{
+    border-radius:22px!important;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  *,*:before,*:after{
+    animation-duration:.001ms!important;
+    animation-iteration-count:1!important;
+    scroll-behavior:auto!important;
+    transition-duration:.001ms!important;
+  }
+}
