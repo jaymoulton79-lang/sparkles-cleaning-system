@@ -7,12 +7,18 @@ const files = document.querySelector('#files');
 const photos = document.querySelector('#photos');
 const date = document.querySelector('#preferred_date');
 const prices = {
-  'Regular clean': { base: 5500, bedroom_extra: 1400, bathroom_extra: 1000 },
-  'Deep clean': { base: 9500, bedroom_extra: 1800, bathroom_extra: 1300 },
-  'End of tenancy': { base: 14500, bedroom_extra: 2400, bathroom_extra: 1700 },
-  'One-off clean': { base: 7500, bedroom_extra: 1600, bathroom_extra: 1100 }
+  'Regular clean': { base: 5700, bedroom_extra: 1000, bathroom_extra: 1000 },
+  'Deep clean': { base: 9700, bedroom_extra: 2000, bathroom_extra: 1000 },
+  'End of tenancy': { base: 15700, bedroom_extra: 3000, bathroom_extra: 2000 },
+  'One-off clean': { base: 7700, bedroom_extra: 2000, bathroom_extra: 1000 }
 };
 const money = p => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(p / 100);
+const priceEnding7 = amount => {
+  let pounds = Math.max(0, Math.ceil(Number(amount || 0) / 100));
+  const remainder = pounds % 10;
+  pounds += remainder <= 7 ? 7 - remainder : 17 - remainder;
+  return pounds * 100;
+};
 
 date.min = new Date().toISOString().split('T')[0];
 showPaymentReturnNotice();
@@ -28,7 +34,7 @@ function updateQuote() {
     return;
   }
   const rule = prices[type];
-  const total = rule.base + Math.max(0, beds - 1) * rule.bedroom_extra + Math.max(0, baths - 1) * rule.bathroom_extra;
+  const total = priceEnding7(rule.base + Math.max(0, beds - 1) * rule.bedroom_extra + Math.max(0, baths - 1) * rule.bathroom_extra);
   document.querySelector('#quoteTotal').textContent = money(total);
   document.querySelector('#quoteDeposit').textContent = `${money(Math.round(total * .25))} deposit`;
 }
