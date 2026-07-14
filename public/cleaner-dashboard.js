@@ -1,4 +1,4 @@
-const esc = value => {
+﻿const esc = value => {
   const div = document.createElement('div');
   div.textContent = value ?? '';
   return div.innerHTML;
@@ -138,6 +138,19 @@ function renderJobSections(jobs) {
     .join('');
 }
 
+function updateSummary(jobs) {
+  const today = todayIso();
+  const awaiting = jobs.filter(job => job.status === 'Assigned').length;
+  const todayJobs = jobs.filter(job => job.preferred_date === today && job.status !== 'Completed').length;
+  const upcoming = jobs.filter(job => job.preferred_date > today && job.status !== 'Completed').length;
+  const completed = jobs.filter(job => job.status === 'Completed').length;
+  const values = [awaiting, todayJobs, upcoming, completed];
+  document.querySelectorAll('#cleanerSummary .summary-pill strong').forEach((node, index) => {
+    node.textContent = values[index] ?? 0;
+  });
+  document.querySelector('#todayJobCount').textContent = todayJobs;
+}
+
 async function load() {
   const response = await fetch('/api/cleaner/jobs');
   const jobs = await response.json();
@@ -145,6 +158,7 @@ async function load() {
     location.href = '/cleaner/login';
     return;
   }
+  updateSummary(jobs);
   document.querySelector('#jobs').innerHTML = jobs.length
     ? renderJobSections(jobs)
     : '<div class="empty cleaner-empty"><strong>No assigned jobs yet.</strong><br>When Sparkles Cleaning Cambridge assigns you a booking, it will appear here.</div>';
@@ -243,3 +257,5 @@ document.querySelector('#logout').onclick = async () => {
 
 load();
 setInterval(load, 10000);
+
+

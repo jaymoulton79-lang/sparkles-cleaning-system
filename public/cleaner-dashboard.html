@@ -24,9 +24,23 @@
 
   <main class="dash cleaner-portal-main">
     <section class="cleaner-portal-hero">
-      <p class="eyebrow">Sparkles Cleaner Portal</p>
-      <h1>Today's assigned jobs</h1>
-      <p>Accept jobs, view customer details, update progress and keep the owner timeline live. Smiles Come Standard.</p>
+      <div>
+        <p class="eyebrow">Sparkles Cleaner Portal</p>
+        <h1>Your jobs, beautifully organised.</h1>
+        <p>Accept jobs, get directions, update progress and keep Sparkles in the loop. Smiles Come Standard.</p>
+      </div>
+      <div class="cleaner-hero-badge">
+        <span>Today</span>
+        <strong id="todayJobCount">0</strong>
+        <small>active jobs</small>
+      </div>
+    </section>
+
+    <section class="cleaner-summary-grid" id="cleanerSummary" aria-label="Cleaner job summary">
+      <div class="summary-pill"><span>Awaiting response</span><strong>0</strong></div>
+      <div class="summary-pill"><span>Today</span><strong>0</strong></div>
+      <div class="summary-pill"><span>Upcoming</span><strong>0</strong></div>
+      <div class="summary-pill"><span>Completed</span><strong>0</strong></div>
     </section>
 
     <section class="table-card cleaner-jobs-shell" id="jobs">

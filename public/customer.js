@@ -71,12 +71,16 @@ function bookingRow(b) {
 async function showPortal() {
   const r = await fetchWithTimeout('/api/customer/bookings', { credentials: 'same-origin', cache: 'no-store' }), bookings = await readJsonResponse(r);
   if (!r.ok) return false;
-  document.querySelector('#authPanel').hidden = true;
-  document.querySelector('#portal').hidden = false;
+  const authPanel = document.querySelector('#authPanel');
+  const portal = document.querySelector('#portal');
+  authPanel.hidden = true;
+  authPanel.style.display = 'none';
+  portal.hidden = false;
+  portal.style.display = 'block';
   document.querySelector('#bookings').innerHTML = bookings.length
     ? `<table><thead><tr><th>Reference</th><th>Clean</th><th>Date</th><th>Status</th><th>Payments</th></tr></thead><tbody>${bookings.map(bookingRow).join('')}</tbody></table>`
     : '<div class="empty">No Sparkles bookings yet. Book with the same email address and they will appear here.</div>';
-  document.querySelector('#portal').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  portal.scrollIntoView({ block: 'start', behavior: 'smooth' });
   return true;
 }
 
