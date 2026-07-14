@@ -7,10 +7,10 @@ const files = document.querySelector('#files');
 const photos = document.querySelector('#photos');
 const date = document.querySelector('#preferred_date');
 const prices = {
-  'Regular clean': { base: 5700, bedroom_extra: 1000, bathroom_extra: 1000 },
-  'Deep clean': { base: 9700, bedroom_extra: 2000, bathroom_extra: 1000 },
-  'End of tenancy': { base: 15700, bedroom_extra: 3000, bathroom_extra: 2000 },
-  'One-off clean': { base: 7700, bedroom_extra: 2000, bathroom_extra: 1000 }
+  'Regular clean': { base: 4700, bedroom_extra: 1000, bathroom_extra: 1000 },
+  'Deep clean': { base: 8700, bedroom_extra: 2000, bathroom_extra: 1000 },
+  'End of tenancy': { base: 12700, bedroom_extra: 3000, bathroom_extra: 2000 },
+  'One-off clean': { base: 6700, bedroom_extra: 2000, bathroom_extra: 1000 }
 };
 const money = p => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(p / 100);
 const priceEnding7 = amount => {

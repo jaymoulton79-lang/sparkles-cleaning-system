@@ -93,12 +93,12 @@ POSTCODE_CENTRES = {
 }
 
 DEFAULT_AI_PRICING = {
-    "Regular clean": {"base": 5700, "bedroom_extra": 1000, "bathroom_extra": 1000},
-    "Deep clean": {"base": 9700, "bedroom_extra": 2000, "bathroom_extra": 1000},
-    "End of tenancy": {"base": 15700, "bedroom_extra": 3000, "bathroom_extra": 2000},
-    "One-off clean": {"base": 7700, "bedroom_extra": 2000, "bathroom_extra": 1000}
+    "Regular clean": {"base": 4700, "bedroom_extra": 1000, "bathroom_extra": 1000},
+    "Deep clean": {"base": 8700, "bedroom_extra": 2000, "bathroom_extra": 1000},
+    "End of tenancy": {"base": 12700, "bedroom_extra": 3000, "bathroom_extra": 2000},
+    "One-off clean": {"base": 6700, "bedroom_extra": 2000, "bathroom_extra": 1000}
 }
-PRICING_VERSION = "2026-competitive-ending-7-v2"
+PRICING_VERSION = "2026-launch-competitive-ending-7"
 DEFAULT_AI_RESPONSES = {
     "greeting": "Thanks for contacting Sparkles Cleaning Agency. I can help with prices, availability and booking details.",
     "booking_prompt": "To prepare an accurate quote, please share your name, phone, email, address, postcode, type of clean, bedrooms, bathrooms, preferred date and preferred time.",
