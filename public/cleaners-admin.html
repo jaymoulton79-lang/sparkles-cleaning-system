@@ -51,6 +51,17 @@
           <div class="field"><label>Hourly rate</label><input name="hourly_rate" required type="number" min="1" step="0.50" value="15"></div>
           <div class="field"><label>DBS status</label><select name="dbs_status" required><option>Verified</option><option>Certificate available</option><option>In progress</option><option>Not held</option></select></div>
           <div class="field"><label>Insurance status</label><select name="insurance_status" required><option>Verified</option><option>Policy available</option><option>In progress</option><option>Not held</option></select></div>
+          <div class="field"><label>Travel method</label><select name="travel_method" required><option>Unknown</option><option>Car</option><option>Public transport</option><option>Bicycle</option><option>Walk/local only</option></select></div>
+          <div class="field"><label>Driving licence</label><select name="driving_licence_status" required><option>Not provided</option><option>Uploaded</option><option>Verified</option><option>Not held</option></select></div>
+        </div>
+        <div class="editor-block">
+          <label>Verification checks</label>
+          <div class="edit-pills form-pills">
+            <label class="edit-pill"><input type="checkbox" name="identity_verified" value="1"><span>ID verified</span></label>
+            <label class="edit-pill"><input type="checkbox" name="right_to_work_verified" value="1"><span>Right to work verified</span></label>
+            <label class="edit-pill"><input type="checkbox" name="proof_of_address_verified" value="1"><span>Proof of address verified</span></label>
+            <label class="edit-pill"><input type="checkbox" name="has_own_vehicle" value="1"><span>Own vehicle</span></label>
+          </div>
         </div>
         <div class="editor-block">
           <label>Availability</label>

@@ -14,6 +14,10 @@ document.querySelector('#applyForm').addEventListener('submit', async event => {
   const data = Object.fromEntries(new FormData(form).entries());
   data.availability = checked('availability');
   data.services = checked('services');
+  data.has_own_vehicle = form.elements.has_own_vehicle.checked;
+  data.identity_verified = form.elements.identity_verified.checked;
+  data.right_to_work_verified = form.elements.right_to_work_verified.checked;
+  data.proof_of_address_verified = form.elements.proof_of_address_verified.checked;
   message.textContent = 'Sending your application...';
   message.className = 'form-message';
   try{

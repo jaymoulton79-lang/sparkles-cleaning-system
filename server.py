@@ -1166,12 +1166,41 @@ def suitable_cleaners(booking):
             cleaner = dict(row)
             if int(cleaner["id"]) in declined:
                 continue
+            travel_method = str(cleaner.get("travel_method") or "Unknown").strip()
+            drives_to_jobs = travel_method.lower() == "car"
+            if not int(cleaner.get("identity_verified") or 0) or not int(cleaner.get("right_to_work_verified") or 0):
+                continue
+            if drives_to_jobs and (
+                str(cleaner.get("driving_licence_status") or "").strip().lower() != "verified"
+                or not int(cleaner.get("has_own_vehicle") or 0)
+            ):
+                continue
             distance = distance_miles(booking["postcode"], cleaner["postcode"])
             if (weekday in json.loads(cleaner["availability"]) and booking["clean_type"] in json.loads(cleaner["services"])
                     and distance <= cleaner["travel_radius"] and not cleaner_has_conflict(conn, cleaner["id"], booking["preferred_date"], booking["preferred_time"], booking["id"])):
                 cleaner["distance"] = distance
                 matches.append(cleaner)
     return sorted(matches, key=lambda item: (item["distance"], item["hourly_rate"]))
+
+
+def cleaner_verification_payload(data, defaults=None):
+    defaults = defaults or {}
+    allowed_travel = {"Unknown", "Car", "Public transport", "Bicycle", "Walk/local only"}
+    allowed_licence = {"Not provided", "Uploaded", "Verified", "Not held"}
+    travel_method = str(data.get("travel_method", defaults.get("travel_method", "Unknown")) or "Unknown").strip()
+    licence_status = str(data.get("driving_licence_status", defaults.get("driving_licence_status", "Not provided")) or "Not provided").strip()
+    if travel_method not in allowed_travel:
+        raise ValueError("Invalid travel method.")
+    if licence_status not in allowed_licence:
+        raise ValueError("Invalid driving licence status.")
+    return {
+        "identity_verified": 1 if data.get("identity_verified", defaults.get("identity_verified", False)) else 0,
+        "right_to_work_verified": 1 if data.get("right_to_work_verified", defaults.get("right_to_work_verified", False)) else 0,
+        "proof_of_address_verified": 1 if data.get("proof_of_address_verified", defaults.get("proof_of_address_verified", False)) else 0,
+        "travel_method": travel_method,
+        "driving_licence_status": licence_status,
+        "has_own_vehicle": 1 if data.get("has_own_vehicle", defaults.get("has_own_vehicle", False)) else 0,
+    }
 
 
 def automation_handler(job):
@@ -1791,6 +1820,18 @@ def initialise():
         cleaner_columns = {row[1] for row in conn.execute("PRAGMA table_info(cleaners)")}
         if "password_hash" not in cleaner_columns:
             conn.execute("ALTER TABLE cleaners ADD COLUMN password_hash TEXT")
+        cleaner_extra_columns = {
+            "identity_verified": "INTEGER NOT NULL DEFAULT 0",
+            "right_to_work_verified": "INTEGER NOT NULL DEFAULT 0",
+            "proof_of_address_verified": "INTEGER NOT NULL DEFAULT 0",
+            "travel_method": "TEXT NOT NULL DEFAULT 'Unknown'",
+            "driving_licence_status": "TEXT NOT NULL DEFAULT 'Not provided'",
+            "has_own_vehicle": "INTEGER NOT NULL DEFAULT 0",
+        }
+        cleaner_columns = {row[1] for row in conn.execute("PRAGMA table_info(cleaners)")}
+        for column, definition in cleaner_extra_columns.items():
+            if column not in cleaner_columns:
+                conn.execute(f"ALTER TABLE cleaners ADD COLUMN {column} {definition}")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS cleaner_applicants (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1821,6 +1862,18 @@ def initialise():
             password_hash TEXT NOT NULL,
             created_at TEXT NOT NULL
         )""")
+        applicant_extra_columns = {
+            "identity_verified": "INTEGER NOT NULL DEFAULT 0",
+            "right_to_work_verified": "INTEGER NOT NULL DEFAULT 0",
+            "proof_of_address_verified": "INTEGER NOT NULL DEFAULT 0",
+            "travel_method": "TEXT NOT NULL DEFAULT 'Unknown'",
+            "driving_licence_status": "TEXT NOT NULL DEFAULT 'Not provided'",
+            "has_own_vehicle": "INTEGER NOT NULL DEFAULT 0",
+        }
+        applicant_columns = {row[1] for row in conn.execute("PRAGMA table_info(cleaner_applicants)")}
+        for column, definition in applicant_extra_columns.items():
+            if column not in applicant_columns:
+                conn.execute(f"ALTER TABLE cleaner_applicants ADD COLUMN {column} {definition}")
         conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
             token_hash TEXT PRIMARY KEY,
             role TEXT NOT NULL,
@@ -3964,10 +4017,18 @@ class Handler(BaseHTTPRequestHandler):
             services = data.get("services")
             if not isinstance(availability, list) or not availability or not isinstance(services, list) or not services:
                 raise ValueError("Choose at least one available day and one service.")
+            verification = cleaner_verification_payload(data)
             with connect() as conn:
                 cursor = conn.execute("""INSERT INTO cleaners
-                    (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), data["postcode"].strip().upper(), radius, rate, json.dumps(availability), json.dumps(services), data["dbs_status"], data["insurance_status"], 1 if data.get("active", True) else 0, datetime.now(timezone.utc).isoformat()))
+                    (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at,
+                     identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), data["postcode"].strip().upper(), radius, rate,
+                    json.dumps(availability), json.dumps(services), data["dbs_status"], data["insurance_status"],
+                    1 if data.get("active", True) else 0, datetime.now(timezone.utc).isoformat(),
+                    verification["identity_verified"], verification["right_to_work_verified"], verification["proof_of_address_verified"],
+                    verification["travel_method"], verification["driving_licence_status"], verification["has_own_vehicle"]
+                ))
                 cleaner_id = cursor.lastrowid
             invite = send_cleaner_invitation_email(cleaner_id) if data.get("send_invite", True) else {"status": "Not sent", "setup_link": None}
             self.send_json({"ok": True, "id": cleaner_id, "invite": invite}, 201)
@@ -3993,12 +4054,14 @@ class Handler(BaseHTTPRequestHandler):
             radius = float(data.get("travel_radius") or 5)
             rate = float(data.get("hourly_rate") or 0)
             source = str(data.get("source") or "Website").strip()[:80] or "Website"
+            verification = cleaner_verification_payload(data)
             now = datetime.now(timezone.utc).isoformat()
             with connect() as conn:
                 cursor = conn.execute("""
                     INSERT INTO cleaner_applicants
-                    (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at,
+                     identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     data["name"].strip(),
                     data["phone"].strip(),
@@ -4015,7 +4078,13 @@ class Handler(BaseHTTPRequestHandler):
                     "New",
                     str(data.get("notes") or "").strip(),
                     now,
-                    now
+                    now,
+                    verification["identity_verified"],
+                    verification["right_to_work_verified"],
+                    verification["proof_of_address_verified"],
+                    verification["travel_method"],
+                    verification["driving_licence_status"],
+                    verification["has_own_vehicle"],
                 ))
             return self.send_json({"ok": True, "id": cursor.lastrowid}, 201)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
@@ -4305,10 +4374,19 @@ class Handler(BaseHTTPRequestHandler):
                     availability = [part.strip() for part in (normalised.get("availability") or "").replace(";", ",").split(",") if part.strip()]
                     services = [part.strip() for part in (normalised.get("services") or normalised.get("services_offered") or "").replace(";", ",").split(",") if part.strip()]
                     try:
+                        verification = cleaner_verification_payload({
+                            "identity_verified": normalised.get("identity_verified") in {"1", "yes", "true", "verified"},
+                            "right_to_work_verified": normalised.get("right_to_work_verified") in {"1", "yes", "true", "verified"},
+                            "proof_of_address_verified": normalised.get("proof_of_address_verified") in {"1", "yes", "true", "verified"},
+                            "travel_method": normalised.get("travel_method") or "Unknown",
+                            "driving_licence_status": normalised.get("driving_licence_status") or normalised.get("driving_license_status") or "Not provided",
+                            "has_own_vehicle": normalised.get("has_own_vehicle") in {"1", "yes", "true"},
+                        })
                         conn.execute("""
                             INSERT INTO cleaner_applicants
-                            (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at,
+                             identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """, (
                             name, phone, email, postcode,
                             normalised.get("experience") or "",
@@ -4322,7 +4400,13 @@ class Handler(BaseHTTPRequestHandler):
                             normalised.get("status") or "New",
                             normalised.get("notes") or "",
                             now,
-                            now
+                            now,
+                            verification["identity_verified"],
+                            verification["right_to_work_verified"],
+                            verification["proof_of_address_verified"],
+                            verification["travel_method"],
+                            verification["driving_licence_status"],
+                            verification["has_own_vehicle"],
                         ))
                         imported += 1
                     except (DB_ERROR_TYPES + (ValueError,)) as error:
@@ -4363,9 +4447,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "Applicant not found."}, 404)
                 if applicant["approved_cleaner_id"]:
                     return self.send_json({"error": "Applicant is already added as a cleaner."}, 409)
+                verification = cleaner_verification_payload(dict(applicant))
                 cursor = conn.execute("""INSERT INTO cleaners
-                    (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at,
+                     identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                         applicant["name"],
                         applicant["phone"],
                         applicant["email"],
@@ -4377,7 +4463,13 @@ class Handler(BaseHTTPRequestHandler):
                         applicant["dbs_status"],
                         applicant["insurance_status"],
                         1,
-                        datetime.now(timezone.utc).isoformat()
+                        datetime.now(timezone.utc).isoformat(),
+                        verification["identity_verified"],
+                        verification["right_to_work_verified"],
+                        verification["proof_of_address_verified"],
+                        verification["travel_method"],
+                        verification["driving_licence_status"],
+                        verification["has_own_vehicle"],
                     ))
                 cleaner_id = cursor.lastrowid
                 conn.execute("""
@@ -4768,6 +4860,18 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Password must be at least 8 characters.")
                 updates.append("password_hash=?")
                 values.append(hash_password(password))
+            verification_fields = {
+                "identity_verified", "right_to_work_verified", "proof_of_address_verified",
+                "travel_method", "driving_licence_status", "has_own_vehicle"
+            }
+            if verification_fields.intersection(data.keys()):
+                verification = cleaner_verification_payload(data)
+                for field in (
+                    "identity_verified", "right_to_work_verified", "proof_of_address_verified",
+                    "travel_method", "driving_licence_status", "has_own_vehicle"
+                ):
+                    updates.append(f"{field}=?")
+                    values.append(verification[field])
             if not updates:
                 raise ValueError("No cleaner updates supplied.")
             with connect() as conn:

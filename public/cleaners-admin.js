@@ -9,6 +9,8 @@ const money = pennies => new Intl.NumberFormat('en-GB', {style: 'currency', curr
 
 const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const services = ['Regular clean','Deep clean','End of tenancy','One-off clean'];
+const travelMethods = ['Unknown','Car','Public transport','Bicycle','Walk/local only'];
+const licenceStatuses = ['Not provided','Uploaded','Verified','Not held'];
 let cleaners = [];
 
 function initials(name) {
@@ -37,6 +39,21 @@ function createValues(field) {
   return [...document.querySelectorAll(`[data-create-field="${field}"] input:checked`)].map(input => input.value);
 }
 
+function selectedOption(value, option) {
+  return String(value || '') === option ? 'selected' : '';
+}
+
+function checkedAttr(value) {
+  return Number(value || 0) ? 'checked' : '';
+}
+
+function verificationReady(cleaner) {
+  const drives = String(cleaner.travel_method || '').toLowerCase() === 'car';
+  return Number(cleaner.identity_verified || 0)
+    && Number(cleaner.right_to_work_verified || 0)
+    && (!drives || (cleaner.driving_licence_status === 'Verified' && Number(cleaner.has_own_vehicle || 0)));
+}
+
 function showPreviewLink(invite) {
   if (invite?.setup_link) {
     alert(`Email preview mode: send this setup link to the cleaner:\n\n${invite.setup_link}`);
@@ -59,6 +76,7 @@ async function loadCleaners() {
     document.querySelector('#cleanerList').innerHTML = cleaners.map(c => {
       const isActive = Number(c.active) !== 0;
       const activated = Boolean(c.activated);
+      const ready = verificationReady(c);
       return `<article class="cleaner-card ${isActive ? '' : 'inactive'}">
         <div class="cleaner-card-head">
           <div class="avatar">${esc(initials(c.name))}</div>
@@ -71,9 +89,11 @@ async function loadCleaners() {
           <div><span>Available</span>${(c.availability || []).map(esc).join(', ') || 'Not set'}</div>
           <div><span>Services</span>${(c.services || []).map(esc).join(', ') || 'Not set'}</div>
           <div><span>Account</span>${activated ? 'Activated' : 'Invitation pending'}<br>${activated ? 'Cleaner can log in' : 'Cleaner must create password'}</div>
+          <div><span>Travel</span>${esc(c.travel_method || 'Unknown')}<br>${c.travel_method === 'Car' ? `Licence: ${esc(c.driving_licence_status || 'Not provided')} · Vehicle: ${Number(c.has_own_vehicle || 0) ? 'Yes' : 'No'}` : 'Radius-based assignment'}</div>
+          <div><span>Auto assignment</span>${ready ? 'Eligible once active/available' : 'Blocked until checks complete'}</div>
         </div>
         <details class="cleaner-editor">
-          <summary>Edit availability & services</summary>
+          <summary>Edit availability, services & checks</summary>
           <div class="editor-block">
             <label>Working days</label>
             ${checkboxGroup(c, 'availability', days)}
@@ -82,12 +102,28 @@ async function loadCleaners() {
             <label>Services offered</label>
             ${checkboxGroup(c, 'services', services)}
           </div>
+          <div class="grid">
+            <div class="field"><label>Travel method</label><select data-cleaner="${c.id}" data-field="travel_method">${travelMethods.map(option => `<option ${selectedOption(c.travel_method, option)}>${esc(option)}</option>`).join('')}</select></div>
+            <div class="field"><label>Driving licence</label><select data-cleaner="${c.id}" data-field="driving_licence_status">${licenceStatuses.map(option => `<option ${selectedOption(c.driving_licence_status, option)}>${esc(option)}</option>`).join('')}</select></div>
+          </div>
+          <div class="editor-block">
+            <label>Verification checks</label>
+            <div class="edit-pills">
+              <label class="edit-pill"><input type="checkbox" data-cleaner="${c.id}" data-check="identity_verified" ${checkedAttr(c.identity_verified)}><span>ID verified</span></label>
+              <label class="edit-pill"><input type="checkbox" data-cleaner="${c.id}" data-check="right_to_work_verified" ${checkedAttr(c.right_to_work_verified)}><span>Right to work verified</span></label>
+              <label class="edit-pill"><input type="checkbox" data-cleaner="${c.id}" data-check="proof_of_address_verified" ${checkedAttr(c.proof_of_address_verified)}><span>Proof of address verified</span></label>
+              <label class="edit-pill"><input type="checkbox" data-cleaner="${c.id}" data-check="has_own_vehicle" ${checkedAttr(c.has_own_vehicle)}><span>Own vehicle</span></label>
+            </div>
+          </div>
           <button class="row-button" onclick="saveCleanerProfile(${c.id},this)">Save cleaner profile</button>
         </details>
         <div class="checks">
           <span class="${c.dbs_status === 'Verified' ? 'verified' : ''}">DBS: ${esc(c.dbs_status)}</span>
           <span class="${c.insurance_status === 'Verified' ? 'verified' : ''}">Insurance: ${esc(c.insurance_status)}</span>
           <span class="${activated ? 'verified' : ''}">Portal: ${activated ? 'Activated' : 'Pending setup'}</span>
+          <span class="${Number(c.identity_verified || 0) ? 'verified' : ''}">ID: ${Number(c.identity_verified || 0) ? 'Verified' : 'Needed'}</span>
+          <span class="${Number(c.right_to_work_verified || 0) ? 'verified' : ''}">Right to work: ${Number(c.right_to_work_verified || 0) ? 'Verified' : 'Needed'}</span>
+          <span class="${ready ? 'verified' : ''}">Auto-assign: ${ready ? 'Ready' : 'Not ready'}</span>
         </div>
         <div class="cleaner-actions">
           <button class="row-button secondary" onclick="sendInvite(${c.id},this)">${activated ? 'Reset / resend invite' : 'Send invitation'}</button>
@@ -111,7 +147,16 @@ async function saveCleanerProfile(id, button) {
     const response = await fetch(`/api/cleaners/${id}`, {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({availability, services: chosenServices})
+      body: JSON.stringify({
+        availability,
+        services: chosenServices,
+        travel_method: document.querySelector(`[data-cleaner="${id}"][data-field="travel_method"]`).value,
+        driving_licence_status: document.querySelector(`[data-cleaner="${id}"][data-field="driving_licence_status"]`).value,
+        identity_verified: document.querySelector(`[data-cleaner="${id}"][data-check="identity_verified"]`).checked,
+        right_to_work_verified: document.querySelector(`[data-cleaner="${id}"][data-check="right_to_work_verified"]`).checked,
+        proof_of_address_verified: document.querySelector(`[data-cleaner="${id}"][data-check="proof_of_address_verified"]`).checked,
+        has_own_vehicle: document.querySelector(`[data-cleaner="${id}"][data-check="has_own_vehicle"]`).checked
+      })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Could not save cleaner profile.');
@@ -188,6 +233,10 @@ function setupCreatePanel() {
       return;
     }
     const data = Object.fromEntries(new FormData(form));
+    data.identity_verified = Boolean(form.elements.identity_verified?.checked);
+    data.right_to_work_verified = Boolean(form.elements.right_to_work_verified?.checked);
+    data.proof_of_address_verified = Boolean(form.elements.proof_of_address_verified?.checked);
+    data.has_own_vehicle = Boolean(form.elements.has_own_vehicle?.checked);
     data.availability = availability;
     data.services = chosenServices;
     data.send_invite = true;

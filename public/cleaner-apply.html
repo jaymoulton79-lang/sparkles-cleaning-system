@@ -63,7 +63,18 @@
       <div class="field-grid">
         <label>DBS status<select name="dbs_status"><option>Unknown</option><option>Applied</option><option>Verified</option><option>Not available</option></select></label>
         <label>Insurance status<select name="insurance_status"><option>Unknown</option><option>Insured</option><option>Not insured</option><option>In progress</option></select></label>
+        <label>How do you travel to jobs?<select name="travel_method"><option>Unknown</option><option>Car</option><option>Public transport</option><option>Bicycle</option><option>Walk/local only</option></select></label>
+        <label>Driving licence status<select name="driving_licence_status"><option>Not provided</option><option>Uploaded</option><option>Verified</option><option>Not held</option></select></label>
       </div>
+      <fieldset>
+        <legend>Travel and identity</legend>
+        <div class="check-grid">
+          <label><input type="checkbox" name="has_own_vehicle" value="1"> I have access to my own vehicle</label>
+          <label><input type="checkbox" name="identity_verified" value="1"> I can provide photo ID</label>
+          <label><input type="checkbox" name="right_to_work_verified" value="1"> I can prove my right to work</label>
+          <label><input type="checkbox" name="proof_of_address_verified" value="1"> I can provide proof of address</label>
+        </div>
+      </fieldset>
       <label>Extra notes<textarea name="notes" rows="3" placeholder="Anything else Sparkles Cleaning Agency should know?"></textarea></label>
       <button class="primary" type="submit">Submit application</button>
       <p id="applyMessage" class="form-message"></p>
