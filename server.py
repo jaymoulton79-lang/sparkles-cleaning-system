@@ -93,11 +93,12 @@ POSTCODE_CENTRES = {
 }
 
 DEFAULT_AI_PRICING = {
-    "Regular clean": {"base": 5500, "bedroom_extra": 1400, "bathroom_extra": 1000},
-    "Deep clean": {"base": 9500, "bedroom_extra": 1800, "bathroom_extra": 1300},
-    "End of tenancy": {"base": 14500, "bedroom_extra": 2400, "bathroom_extra": 1700},
-    "One-off clean": {"base": 7500, "bedroom_extra": 1600, "bathroom_extra": 1100}
+    "Regular clean": {"base": 5700, "bedroom_extra": 1000, "bathroom_extra": 1000},
+    "Deep clean": {"base": 9700, "bedroom_extra": 2000, "bathroom_extra": 1000},
+    "End of tenancy": {"base": 15700, "bedroom_extra": 3000, "bathroom_extra": 2000},
+    "One-off clean": {"base": 7700, "bedroom_extra": 2000, "bathroom_extra": 1000}
 }
+PRICING_VERSION = "2026-competitive-ending-7-v2"
 DEFAULT_AI_RESPONSES = {
     "greeting": "Thanks for contacting Sparkles Cleaning Agency. I can help with prices, availability and booking details.",
     "booking_prompt": "To prepare an accurate quote, please share your name, phone, email, address, postcode, type of clean, bedrooms, bathrooms, preferred date and preferred time.",
@@ -498,7 +499,18 @@ def cleaner_has_conflict(conn, cleaner_id, booking_date, booking_time, exclude_b
 def quote_pence(clean_type, bedrooms, bathrooms):
     pricing = ai_pricing_rules()
     rule = pricing.get(clean_type) or pricing.get("One-off clean") or {"base": 7500, "bedroom_extra": 1600, "bathroom_extra": 1100}
-    return int(rule.get("base", 7500)) + max(0, int(bedrooms) - 1) * int(rule.get("bedroom_extra", 0)) + max(0, int(bathrooms) - 1) * int(rule.get("bathroom_extra", 0))
+    raw_total = int(rule.get("base", 7500)) + max(0, int(bedrooms) - 1) * int(rule.get("bedroom_extra", 0)) + max(0, int(bathrooms) - 1) * int(rule.get("bathroom_extra", 0))
+    return price_ending_7_pence(raw_total)
+
+
+def price_ending_7_pence(amount):
+    pounds = max(0, math.ceil(int(amount or 0) / 100))
+    remainder = pounds % 10
+    if remainder <= 7:
+        pounds += 7 - remainder
+    else:
+        pounds += 17 - remainder
+    return pounds * 100
 
 
 def ai_pricing_rules():
@@ -739,6 +751,39 @@ def record_payment(conn, booking_id, payment_type, amount, provider_id, status="
         conn.execute("UPDATE bookings SET payment_status='Deposit Paid', status=CASE WHEN status='New' THEN 'Deposit Paid' ELSE status END WHERE id=?", (booking_id,))
     elif payment_type == "balance":
         conn.execute("UPDATE bookings SET payment_status='Paid in Full' WHERE id=?", (booking_id,))
+
+
+def estimated_cleaner_hours(booking):
+    bedrooms = int(booking["bedrooms"] or 0)
+    bathrooms = int(booking["bathrooms"] or 0)
+    clean_type = str(booking["clean_type"] or "").lower()
+    hours = 1.5 + bedrooms * 0.45 + bathrooms * 0.35
+    if "deep" in clean_type:
+        hours += 1.25
+    if "end of tenancy" in clean_type:
+        hours += 2
+    return max(2, round(hours * 2) / 2)
+
+
+def ensure_cleaner_payout(conn, booking_id):
+    booking = conn.execute("""
+        SELECT b.*, c.name AS cleaner_name, c.hourly_rate AS cleaner_hourly_rate
+        FROM bookings b JOIN cleaners c ON c.id=b.cleaner_id
+        WHERE b.id=? AND b.cleaner_id IS NOT NULL
+    """, (booking_id,)).fetchone()
+    if not booking or booking["status"] != "Completed":
+        return None
+    hours = estimated_cleaner_hours(booking)
+    rate = float(booking["cleaner_hourly_rate"] or 0)
+    amount = int(round(hours * rate * 100))
+    now = utcnow().isoformat()
+    conn.execute("""INSERT OR IGNORE INTO cleaner_payouts
+        (booking_id,cleaner_id,amount,currency,status,estimated_hours,hourly_rate,created_at,updated_at)
+        VALUES (?,?,?,'gbp','Pending',?,?,?,?)""", (booking_id, booking["cleaner_id"], amount, hours, rate, now, now))
+    conn.execute("""UPDATE cleaner_payouts
+        SET amount=?, estimated_hours=?, hourly_rate=?, updated_at=?
+        WHERE booking_id=? AND status='Pending'""", (amount, hours, rate, now, booking_id))
+    return conn.execute("SELECT * FROM cleaner_payouts WHERE booking_id=?", (booking_id,)).fetchone()
 
 
 def record_invoice_payment(conn, invoice):
@@ -1205,7 +1250,7 @@ POSTGRES_SCHEMES = ("postgres://", "postgresql://")
 POSTGRES_ID_TABLES = {
     "bookings", "cleaners", "cleaner_applicants", "customers", "payments",
     "customer_reviews", "ai_conversations", "ai_messages", "automation_jobs",
-    "booking_timeline", "cleaner_offers", "email_log"
+    "booking_timeline", "cleaner_offers", "email_log", "cleaner_payouts"
 }
 POSTGRES_RESERVED_TABLES = {"workflow_config", "app_config", "sessions", "password_reset_tokens", "archived_stripe_sessions"}
 
@@ -1397,7 +1442,7 @@ class PostgresConnection:
         # These known statements all have natural unique keys/primary keys.
         table_match = re.match(r"insert\s+into\s+([a-zA-Z_][a-zA-Z0-9_]*)", sql, re.I)
         table = table_match.group(1) if table_match else ""
-        conflict_safe_tables = {"app_config", "workflow_config", "automation_jobs", "cleaner_offers", "payments", "archived_stripe_sessions"}
+        conflict_safe_tables = {"app_config", "workflow_config", "automation_jobs", "cleaner_offers", "payments", "archived_stripe_sessions", "cleaner_payouts"}
         if table in conflict_safe_tables:
             return sql + " ON CONFLICT DO NOTHING"
         return sql
@@ -1772,6 +1817,21 @@ def initialise():
             provider_payment_id TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS cleaner_payouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL UNIQUE REFERENCES bookings(id),
+            cleaner_id INTEGER NOT NULL REFERENCES cleaners(id),
+            amount INTEGER NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'gbp',
+            status TEXT NOT NULL DEFAULT 'Pending',
+            estimated_hours REAL NOT NULL DEFAULT 0,
+            hourly_rate REAL NOT NULL DEFAULT 0,
+            paid_at TEXT,
+            paid_method TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS customer_reviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             booking_id INTEGER REFERENCES bookings(id),
@@ -1812,9 +1872,23 @@ def initialise():
             ("RESEND_API_KEY", "", 1), ("SENDGRID_API_KEY", "", 1), ("REVIEW_URL", "", 0),
             ("LOGO_URL", "", 0), ("ADMIN_EMAIL", "", 0), ("ADMIN_PASSWORD_HASH", "", 1),
             ("AI_BUSINESS_HOURS", DEFAULT_BUSINESS_HOURS, 0), ("AI_SERVICE_AREAS", DEFAULT_SERVICE_AREAS, 0),
-            ("AI_PRICING_JSON", json.dumps(DEFAULT_AI_PRICING), 0), ("AI_RESPONSES_JSON", json.dumps(DEFAULT_AI_RESPONSES), 0)
+            ("AI_PRICING_JSON", json.dumps(DEFAULT_AI_PRICING), 0), ("PRICING_VERSION", PRICING_VERSION, 0),
+            ("AI_RESPONSES_JSON", json.dumps(DEFAULT_AI_RESPONSES), 0)
         ]
         conn.executemany("INSERT OR IGNORE INTO app_config(key,value,is_secret,updated_at) VALUES (?,?,?,?)", [(k,v,s,datetime.now(timezone.utc).isoformat()) for k,v,s in defaults])
+        pricing_json = json.dumps(DEFAULT_AI_PRICING)
+        pricing_config = conn.execute("SELECT value FROM app_config WHERE key='AI_PRICING_JSON'").fetchone()
+        pricing_version = conn.execute("SELECT value FROM app_config WHERE key='PRICING_VERSION'").fetchone()
+        if (
+            not pricing_config
+            or pricing_config["value"] != pricing_json
+            or not pricing_version
+            or pricing_version["value"] != PRICING_VERSION
+        ):
+            now = utcnow().isoformat()
+            conn.execute("UPDATE app_config SET value=?,updated_at=? WHERE key='AI_PRICING_JSON'", (pricing_json, now))
+            conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('PRICING_VERSION',?,?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (PRICING_VERSION, 0, now))
         admin_email = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_EMAIL'").fetchone()
         admin_hash = conn.execute("SELECT value FROM app_config WHERE key='ADMIN_PASSWORD_HASH'").fetchone()
         if not (admin_email and admin_email["value"]) and not (admin_hash and admin_hash["value"]):
@@ -2068,6 +2142,10 @@ class Handler(BaseHTTPRequestHandler):
                 item["services"] = json.loads(item["services"])
                 cleaners.append(item)
             return self.send_json(cleaners)
+        if path == "/api/cleaner-payouts":
+            if not self.require_admin():
+                return
+            return self.list_cleaner_payouts()
         if path == "/api/cleaner-applicants":
             if not self.require_admin():
                 return
@@ -2120,7 +2198,8 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 rows = conn.execute("""SELECT b.*, c.name AS cleaner_name, c.phone AS cleaner_phone
                     FROM bookings b LEFT JOIN cleaners c ON c.id=b.cleaner_id
-                    WHERE lower(b.email)=lower(?) OR b.customer_id=?
+                    WHERE (lower(b.email)=lower(?) OR b.customer_id=?)
+                    AND b.archived_at IS NULL AND COALESCE(b.is_test,0)=0
                     ORDER BY b.id DESC""", (session["email"], session["subject_id"])).fetchall()
             bookings = []
             for row in rows:
@@ -2318,6 +2397,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.create_cleaner()
+        if path.startswith("/api/cleaner-payouts/") and path.endswith("/mark-paid"):
+            if not self.require_admin():
+                return
+            return self.mark_cleaner_payout_paid(path)
         if path == "/api/cleaner-applicants":
             return self.create_cleaner_applicant()
         if path == "/api/cleaner-applicants/import":
@@ -3724,6 +3807,16 @@ class Handler(BaseHTTPRequestHandler):
                 booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
             if not booking:
                 return self.send_json({"error": "Booking not found."}, 404)
+            session = self.current_session()
+            is_admin = bool(session and session["role"] == "admin")
+            is_booking_customer = bool(
+                session and session["role"] == "customer" and (
+                    int(booking["customer_id"] or 0) == int(session["subject_id"] or 0)
+                    or str(booking["email"] or "").strip().lower() == str(session["email"] or "").strip().lower()
+                )
+            )
+            if not is_admin and not is_booking_customer:
+                return self.send_json({"error": "Please log in to your customer portal to manage this booking payment."}, 401)
             if payment_type == "deposit" and booking["payment_status"] in ("Deposit Paid", "Paid in Full"):
                 return self.send_json({"paid": True, "message": "Deposit has already been paid."})
             if payment_type == "balance" and booking["status"] != "Completed":
@@ -4418,6 +4511,7 @@ class Handler(BaseHTTPRequestHandler):
                     if booking["status"] not in ("In Progress", "Completed"):
                         return self.send_json({"error": "Only jobs in progress can be completed."}, 409)
                     conn.execute("UPDATE bookings SET status='Completed', accepted_at=COALESCE(accepted_at, ?), started_at=COALESCE(started_at, ?), completed_at=COALESCE(completed_at, ?) WHERE id=?", (now, now, now, booking_id))
+                    ensure_cleaner_payout(conn, booking_id)
                     event, detail, status = "Job completed", f"{cleaner_name} marked the job complete", "Completed"
                 elif action == "notes":
                     notes = data.get("notes", "").strip()
@@ -4479,6 +4573,53 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError) as error:
             return self.send_json({"error": str(error) or "Invalid photo upload."}, 400)
 
+    def list_cleaner_payouts(self):
+        with connect() as conn:
+            completed = conn.execute("""
+                SELECT id FROM bookings
+                WHERE status='Completed' AND cleaner_id IS NOT NULL AND archived_at IS NULL
+            """).fetchall()
+            for booking in completed:
+                ensure_cleaner_payout(conn, booking["id"])
+            rows = conn.execute("""
+                SELECT p.*, b.reference, b.name AS customer_name, b.preferred_date, b.preferred_time,
+                       b.clean_type, b.payment_status, c.name AS cleaner_name, c.email AS cleaner_email
+                FROM cleaner_payouts p
+                JOIN bookings b ON b.id=p.booking_id
+                JOIN cleaners c ON c.id=p.cleaner_id
+                WHERE b.archived_at IS NULL
+                ORDER BY CASE WHEN p.status='Pending' THEN 0 ELSE 1 END, b.preferred_date DESC, p.id DESC
+            """).fetchall()
+        return self.send_json([dict(row) for row in rows])
+
+    def mark_cleaner_payout_paid(self, path):
+        try:
+            payout_id = int(path.split("/")[3])
+            data = self.read_json()
+            method = str(data.get("paid_method") or "Manual payment").strip()
+            notes = str(data.get("notes") or "").strip()
+            paid_at = utcnow().isoformat()
+            with connect() as conn:
+                payout = conn.execute("""
+                    SELECT p.*, b.reference, c.name AS cleaner_name
+                    FROM cleaner_payouts p
+                    JOIN bookings b ON b.id=p.booking_id
+                    JOIN cleaners c ON c.id=p.cleaner_id
+                    WHERE p.id=?
+                """, (payout_id,)).fetchone()
+                if not payout:
+                    return self.send_json({"error": "Cleaner payout not found."}, 404)
+                conn.execute("""
+                    UPDATE cleaner_payouts
+                    SET status='Paid', paid_at=?, paid_method=?, notes=?, updated_at=?
+                    WHERE id=?
+                """, (paid_at, method, notes, paid_at, payout_id))
+                booking_id = payout["booking_id"]
+            automation.timeline(booking_id, "Cleaner payout marked paid", f"{payout['cleaner_name']} payout marked paid by owner via {method}")
+            return self.send_json({"ok": True, "status": "Paid", "paid_at": paid_at})
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError):
+            return self.send_json({"error": "Invalid cleaner payout update."}, 400)
+
     def update_booking(self, path):
         try:
             booking_id = int(path.split("/")[3])
@@ -4518,6 +4659,7 @@ class Handler(BaseHTTPRequestHandler):
                 if new_status == "Completed" and booking["status"] != "Completed":
                     try:
                         refreshed = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+                        ensure_cleaner_payout(conn, booking_id)
                         invoice = create_balance_invoice(conn, refreshed)
                         invoice_url = invoice.get("hosted_invoice_url") if invoice else refreshed["balance_payment_url"]
                     except ValueError as error:

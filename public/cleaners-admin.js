@@ -5,6 +5,7 @@ const esc = value => {
   div.textContent = value ?? '';
   return div.innerHTML;
 };
+const money = pennies => new Intl.NumberFormat('en-GB', {style: 'currency', currency: 'GBP'}).format((Number(pennies || 0)) / 100);
 
 const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const services = ['Regular clean','Deep clean','End of tenancy','One-off clean'];
@@ -216,10 +217,65 @@ function setupCreatePanel() {
   };
 }
 
+async function loadPayouts() {
+  const summary = document.querySelector('#payoutSummary');
+  const list = document.querySelector('#payoutList');
+  if (!summary || !list) return;
+  summary.textContent = 'Loading cleaner payouts...';
+  list.innerHTML = '';
+  try {
+    const response = await fetch('/api/cleaner-payouts');
+    const payouts = await response.json();
+    if (!response.ok) throw new Error(payouts.error || 'Could not load cleaner payouts.');
+    const pending = payouts.filter(payout => payout.status === 'Pending');
+    const paid = payouts.filter(payout => payout.status === 'Paid');
+    const pendingTotal = pending.reduce((total, payout) => total + Number(payout.amount || 0), 0);
+    summary.innerHTML = `<strong>${money(pendingTotal)} pending</strong><span>${pending.length} pending · ${paid.length} paid</span>`;
+    list.innerHTML = payouts.length ? payouts.map(payout => `
+      <article class="payout-card ${payout.status === 'Paid' ? 'paid' : ''}">
+        <div>
+          <span class="payout-status-pill">${esc(payout.status)}</span>
+          <h3>${esc(payout.cleaner_name)} · ${money(payout.amount)}</h3>
+          <p>${esc(payout.reference)} · ${esc(payout.customer_name)} · ${esc(payout.clean_type)} · ${esc(payout.preferred_date)} ${esc(payout.preferred_time)}</p>
+          <small>${Number(payout.estimated_hours || 0)} hrs × ${money(Number(payout.hourly_rate || 0) * 100)}/hr${payout.paid_at ? ` · Paid ${new Date(payout.paid_at).toLocaleString('en-GB')}` : ''}</small>
+        </div>
+        ${payout.status === 'Pending' ? `<button class="row-button" onclick="markPayoutPaid(${payout.id},this)">Mark paid</button>` : '<span class="paid-label">Paid</span>'}
+      </article>
+    `).join('') : '<div class="empty">No cleaner payouts yet. Completed assigned jobs will appear here.</div>';
+  } catch (error) {
+    summary.textContent = error.message;
+    list.innerHTML = '';
+  }
+}
+
+async function markPayoutPaid(id, button) {
+  const note = prompt('Optional note for this cleaner payment:', 'Paid manually by owner') || '';
+  if (!confirm('Mark this cleaner payout as paid?')) return;
+  button.disabled = true;
+  button.textContent = 'Marking paid...';
+  try {
+    const response = await fetch(`/api/cleaner-payouts/${id}/mark-paid`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({paid_method: 'Manual payment', notes: note})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not mark payout paid.');
+    await loadPayouts();
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
+    button.textContent = 'Mark paid';
+  }
+}
+
 window.loadCleaners = loadCleaners;
 window.saveCleanerProfile = saveCleanerProfile;
 window.sendInvite = sendInvite;
 window.toggleCleaner = toggleCleaner;
+window.loadPayouts = loadPayouts;
+window.markPayoutPaid = markPayoutPaid;
 
 setupCreatePanel();
 loadCleaners();
+loadPayouts();

@@ -6,4 +6,5 @@ __pycache__/
 *.py[cod]
 *.log
 tmp_fresh_launch_reset*.db
+tmp_saas_audit_*.db
 work/

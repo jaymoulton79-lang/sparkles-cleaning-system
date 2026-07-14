@@ -33,7 +33,7 @@ async function load(){
           ${b.status==='Completed'&&b.payment_status!=='Paid in Full'?`<br><button class="row-button balance-link" onclick="startBalancePayment(${b.id},this)">Pay balance online</button>`:''}
           ${b.status==='Completed'&&b.payment_status!=='Paid in Full'?`<br><button class="row-button" onclick="resendFinalInvoice(${b.id},this)">Resend final email</button>`:''}
         </td>
-        <td>${bookingActions(b)}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick='archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})'>Archive test</button></td>
+        <td>${bookingActions(b)}<br><button class="row-button" onclick="toggle(${i})">View details</button><br><button class="row-button danger" onclick='archiveBooking(${jsArg(b.id)},this,${jsArg(b.recovered_session_id||'')})'>Archive booking</button></td>
       </tr>
       <tr class="detail-row" id="detail-${i}"><td class="detail" colspan="6"><div class="detail-grid">
         <div class="detail-block"><span>Reference</span><strong>${esc(b.reference)}</strong></div>
@@ -105,17 +105,17 @@ async function resendFinalInvoice(id,button){
 
 async function archiveBooking(id,button,recoveredSessionId=''){
   const booking=bookings.find(x=>String(x.id)===String(id)||String(x.recovered_session_id||'')===String(recoveredSessionId||''));
-  if(!confirm(`Archive ${booking?.reference||'this booking'} as test data? It will be hidden from the normal admin list and excluded from dashboard metrics.`))return;
+  if(!confirm(`Archive ${booking?.reference||'this booking'}? It will be hidden from the normal admin list and excluded from dashboard metrics.`))return;
   button.disabled=true;button.textContent='Archiving...';
   try{
     const url=recoveredSessionId?`/api/recovered-bookings/${encodeURIComponent(recoveredSessionId)}`:`/api/bookings/${encodeURIComponent(id)}`;
     const body=recoveredSessionId
-      ?{archive_reason:'Archived recovered Stripe test booking from admin bookings'}
-      :{archive:true,is_test:true,status:booking?.status||'Cancelled',archive_reason:'Archived as test data from admin bookings'};
+      ?{archive_reason:'Archived recovered Stripe booking from admin bookings'}
+      :{archive:true,is_test:true,status:booking?.status||'Cancelled',archive_reason:'Archived from admin bookings'};
     const r=await fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const result=await r.json();if(!r.ok)throw new Error(result.error||'Could not archive booking.');
     await load();
-  }catch(e){button.disabled=false;button.textContent='Archive test';alert(e.message)}
+  }catch(e){button.disabled=false;button.textContent='Archive booking';alert(e.message)}
 }
 
 async function openAssign(id){

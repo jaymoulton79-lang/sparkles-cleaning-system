@@ -25,7 +25,7 @@
     <div class="dash-head">
       <div>
         <h1>Cleaners</h1>
-        <p>Manage trusted Sparkles cleaners, invitations and activation.</p>
+        <p>Manage trusted Sparkles cleaners, invitations, activation and payouts.</p>
       </div>
       <div class="mini-actions">
         <a class="primary-small" href="/admin/cleaner-applicants">Applicants</a>
@@ -72,8 +72,21 @@
       <div class="stat"><span>Activated</span><strong id="activatedTotal">—</strong></div>
       <div class="stat"><span>Pending setup</span><strong id="pendingTotal">—</strong></div>
     </section>
-    <section class="cleaner-grid" id="cleanerList"><div class="empty card-wide">Loading cleaners…</div></section>
+
+    <section class="card-wide payouts-panel">
+      <div class="card-head">
+        <div>
+          <h2>Cleaner payouts</h2>
+          <p class="card-sub">Track completed jobs owed to cleaners, then mark them paid after you pay them manually.</p>
+        </div>
+        <button class="row-button secondary" type="button" onclick="loadPayouts()">Refresh payouts</button>
+      </div>
+      <div id="payoutSummary" class="payout-summary">Loading cleaner payouts...</div>
+      <div id="payoutList" class="payout-list"></div>
+    </section>
+
+    <section class="cleaner-grid" id="cleanerList"><div class="empty card-wide">Loading cleaners...</div></section>
   </main>
-  <script src="/cleaners-admin.js?v=20260711-invites"></script>
+  <script src="/cleaners-admin.js?v=20260714-saas-payouts"></script>
 </body>
 </html>
