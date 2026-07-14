@@ -1,4 +1,4 @@
-# Sparkles Cleaning Agency Money Launch Pack
+# Sparkles Cleaning Cambridge Money Launch Pack
 
 Use this pack to get from "the system works" to "real bookings and real money".
 
@@ -14,7 +14,7 @@ Cleaner supply -> customer booking -> deposit paid -> cleaner completes job -> f
 
 **Post title:** Self-employed cleaners wanted
 
-Sparkles Cleaning Agency is looking for reliable self-employed domestic cleaners.
+Sparkles Cleaning Cambridge is looking for reliable self-employed domestic cleaners.
 
 We are building a trusted cleaner network and have cleaning job opportunities available based on your postcode, availability and travel radius.
 
@@ -39,7 +39,7 @@ Smiles Come Standard.
 
 ### Short Facebook/WhatsApp version
 
-Sparkles Cleaning Agency is looking for reliable self-employed cleaners.
+Sparkles Cleaning Cambridge is looking for reliable self-employed cleaners.
 
 Choose your availability, travel area and preferred cleaning services.
 
@@ -51,7 +51,7 @@ Apply here:
 
 ### WhatsApp message to people you know
 
-Hi, I’m building a cleaner network for Sparkles Cleaning Agency.
+Hi, I’m building a cleaner network for Sparkles Cleaning Cambridge.
 
 Do you know any reliable cleaners who might want self-employed cleaning work?
 
@@ -67,7 +67,7 @@ Thanks — really appreciate it.
 
 Do you know a reliable cleaner?
 
-Sparkles Cleaning Agency is now accepting cleaner applications.
+Sparkles Cleaning Cambridge is now accepting cleaner applications.
 
 Cleaners can choose their working area, availability and services offered.
 
@@ -81,7 +81,7 @@ Apply here:
 
 **Job title:** Self-employed Domestic Cleaner
 
-Sparkles Cleaning Agency is recruiting reliable self-employed domestic cleaners.
+Sparkles Cleaning Cambridge is recruiting reliable self-employed domestic cleaners.
 
 You will receive cleaning job opportunities based on your postcode, availability, travel radius and services offered.
 
@@ -117,7 +117,7 @@ Apply here:
 
 Need a reliable cleaner?
 
-Sparkles Cleaning Agency lets you book a professional clean online in under 60 seconds.
+Sparkles Cleaning Cambridge lets you book a professional clean online in under 60 seconds.
 
 - One-off cleans
 - Regular cleans
@@ -136,7 +136,7 @@ Smiles Come Standard.
 
 ### Short customer WhatsApp message
 
-I’m now taking cleaning bookings through Sparkles Cleaning Agency.
+I’m now taking cleaning bookings through Sparkles Cleaning Cambridge.
 
 You can book online, get your quote and pay the 25% deposit securely by Stripe:
 

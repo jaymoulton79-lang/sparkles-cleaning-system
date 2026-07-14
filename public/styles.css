@@ -2,7 +2,7 @@
 /* dashboard */.dash{max-width:1180px;margin:0 auto;padding:42px 24px}.dash-head{display:flex;justify-content:space-between;align-items:end;margin-bottom:28px}.dash h1{font-size:32px;letter-spacing:-.04em;margin:0}.dash-head p{color:var(--muted);margin:5px 0 0}.back{font-size:14px;color:var(--blue);font-weight:700;text-decoration:none}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:22px}.stat{background:white;border:1px solid var(--line);border-radius:14px;padding:19px}.stat span{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;font-weight:750}.stat strong{display:block;font-size:28px;margin-top:3px}.table-card{background:white;border:1px solid var(--line);border-radius:17px;overflow:hidden;box-shadow:0 10px 35px rgba(22,55,105,.06)}table{width:100%;border-collapse:collapse;text-align:left}th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:#f8fafe;padding:13px 16px}td{padding:16px;border-top:1px solid #edf1f6;font-size:13px;vertical-align:top}.customer strong{display:block;font-size:14px}.customer span,.date-sub{color:var(--muted);font-size:12px}.badge{display:inline-block;padding:5px 9px;border-radius:999px;color:#176b53;background:#e5f8f1;font-size:11px;font-weight:800}.row-button{background:none;border:0;color:var(--blue);font-weight:750;cursor:pointer;padding:0}.empty{text-align:center;padding:65px 20px;color:var(--muted)}.detail-row{display:none}.detail-row.open{display:table-row}.detail{background:#f8fafe;padding:20px!important}.detail-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.detail-block span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:750;display:block;margin-bottom:4px}.photos{display:flex;gap:8px;margin-top:8px}.photos img{width:72px;height:58px;object-fit:cover;border-radius:7px}
 @media(max-width:800px){.hero{grid-template-columns:1fr;gap:24px;padding-top:30px}.intro{position:static;padding-top:0}.intro h1{font-size:39px}.promise{display:none}.card{padding:24px}.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{display:none}.table-card{overflow-x:auto}table{min-width:720px}.dash-head{align-items:start}.detail-grid{grid-template-columns:1fr 1fr}}@media(max-width:520px){.nav{padding:15px 18px}.brand-mark{width:35px;height:35px}.admin-link{font-size:12px}.hero{padding:26px 16px 18px}.intro h1{font-size:34px;margin-bottom:13px}.intro p{font-size:15px;margin-bottom:5px}.card{border-radius:17px;padding:21px 17px}.grid{grid-template-columns:1fr;gap:14px}.field.full{grid-column:auto}.card-head{margin-bottom:22px}.card h2{font-size:21px}.dash{padding:28px 15px}.dash h1{font-size:27px}.stats{gap:9px}.stat{padding:15px}.stat strong{font-size:23px}}
 
-/* Sparkles Cleaning Agency premium brand layer */
+/* Sparkles Cleaning Cambridge premium brand layer */
 .stat,.table-card,.owner-card,.owner-panel,.cleaner-card,.job-card,.modal,.payment-card,.accept-card,.mini-item,.card-wide{border-radius:var(--radius-sm)!important;box-shadow:var(--shadow-soft)!important;border-color:var(--line)!important;background:rgba(255,255,255,.96)!important;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
 .stat:hover,.owner-card:hover,.cleaner-card:hover,.job-card:hover,.mini-item:hover{transform:translateY(-1px);border-color:#cfe1ff!important;box-shadow:var(--shadow)!important}
 .owner-card.money strong,.back,.admin-nav a.active{color:var(--blue)!important}.owner-card strong,.stat strong,.rate{color:var(--ink)}
@@ -13,7 +13,7 @@
 .spinner{border-top-color:var(--blue)!important}.calendar-loading,.loading{color:var(--muted)}
 .sparkles-chat-button,.sparkles-chat-form button{background:linear-gradient(135deg,var(--blue),#3991ff)!important;box-shadow:0 14px 34px rgba(22,119,255,.32)!important}.sparkles-chat,.conversation-list,.conversation-panel,.calendar-card,.availability-panel,.ai-card,.recruit-hero>div:first-child,.source-card,.recruit-form,.recruit-links,.recruit-import,.applicant-card{border-radius:var(--radius)!important;box-shadow:var(--shadow-soft)!important}.sparkles-chat-head,.source-card{background:linear-gradient(135deg,var(--blue),#66b2ff)!important}.bar{background:linear-gradient(180deg,#66b2ff,var(--blue))!important}.legend .assigned,.booking-event.status-assigned{border-color:var(--blue)!important}.view-switch button.active{color:var(--blue)!important}
 
-/* Sparkles Cleaning Agency design system */
+/* Sparkles Cleaning Cambridge design system */
 :root{--v2-blue:#1677FF;--v2-ink:#0F172A;--v2-glass:rgba(255,255,255,.82);--v2-border:rgba(226,232,240,.82);--v2-shadow:0 24px 80px rgba(15,23,42,.14);--v2-shadow-soft:0 14px 38px rgba(15,23,42,.09);--v2-ease:cubic-bezier(.2,.8,.2,1)}
 body{background:radial-gradient(circle at 12% -8%,rgba(22,119,255,.18),transparent 34%),linear-gradient(180deg,#f8fbff 0%,#f6f8fb 46%,#ffffff 100%)}
 header{background:rgba(255,255,255,.78);box-shadow:0 1px 0 rgba(15,23,42,.04),0 18px 45px rgba(15,23,42,.04)}
@@ -552,4 +552,145 @@ footer,.sp-footer{
     grid-template-columns:1fr;
     padding:20px;
   }
+}
+
+/* Sparkles bright logo brand refresh
+   UI-only theme layer. This keeps the working app behaviour untouched while
+   aligning the product with the supplied pink, teal, orange and yellow logo. */
+:root{
+  --blue:#E91E8F;
+  --blue-dark:#B91571;
+  --ink:#172033;
+  --muted:#6B5F6A;
+  --line:#F2D9E7;
+  --wash:#FFF7FB;
+  --green:#0FAE8B;
+  --sparkles-pink:#E91E8F;
+  --sparkles-pink-dark:#B91571;
+  --sparkles-teal:#10A9C4;
+  --sparkles-orange:#F59E0B;
+  --sparkles-yellow:#FACC15;
+  --sparkles-cream:#FFF8EF;
+  --premium-blue:#E91E8F;
+  --premium-blue-2:#F472B6;
+  --premium-cyan:#10A9C4;
+  --premium-gold:#FACC15;
+  --premium-navy:#172033;
+  --premium-navy-2:#2A2030;
+  --premium-bg:#FFF8EF;
+  --premium-border:rgba(242,217,231,.88);
+  --premium-muted:#6B5F6A;
+  --premium-shadow-blue:0 18px 44px rgba(233,30,143,.24);
+  --v2-blue:#E91E8F;
+  --v2-ink:#172033;
+  --v2-border:rgba(242,217,231,.88);
+}
+
+html{background:var(--sparkles-cream)}
+body{
+  background:
+    radial-gradient(circle at 10% -8%,rgba(233,30,143,.15),transparent 34%),
+    radial-gradient(circle at 88% 0%,rgba(16,169,196,.16),transparent 30%),
+    radial-gradient(circle at 50% 0%,rgba(245,158,11,.10),transparent 34%),
+    linear-gradient(180deg,#FFF8EF 0%,#FFF7FB 44%,#FFFFFF 100%)!important;
+}
+.topbar{
+  height:5px;
+  background:linear-gradient(90deg,var(--sparkles-pink),var(--sparkles-orange),var(--sparkles-yellow),var(--sparkles-teal))!important;
+}
+header,.sp-nav{
+  background:rgba(255,253,248,.86)!important;
+  border-bottom:1px solid rgba(242,217,231,.9)!important;
+}
+.brand-mark,.sparkles-logo-mark,.sp-logo-img{
+  background:url("/assets/sparkles-premium-logo.jpg") center/cover no-repeat!important;
+  color:transparent!important;
+  box-shadow:0 18px 42px rgba(233,30,143,.20),0 0 0 1px rgba(255,255,255,.9)!important;
+}
+.brand:hover .brand-mark,.sparkles-wordmark:hover .sparkles-logo-mark{
+  box-shadow:0 22px 52px rgba(16,169,196,.24),0 0 0 1px rgba(255,255,255,.9)!important;
+}
+.eyebrow,.admin-link:hover,.row-button,.back,.login-options a,.owner-card.money strong,.admin-nav a.active{
+  color:var(--sparkles-pink)!important;
+}
+.intro h1,.dash h1,.owner-hero h1,.login-card h1,.card h2{
+  color:var(--ink)!important;
+}
+.card,.stat,.table-card,.owner-card,.owner-panel,.cleaner-card,.job-card,.payment-card,.accept-card,.mini-item,.role-card{
+  border-color:rgba(242,217,231,.88)!important;
+  box-shadow:0 18px 48px rgba(233,30,143,.08),0 8px 22px rgba(15,23,42,.04)!important;
+}
+.card:hover,.stat:hover,.owner-card:hover,.cleaner-card:hover,.job-card:hover,.role-card:hover{
+  border-color:rgba(16,169,196,.28)!important;
+  box-shadow:0 24px 66px rgba(233,30,143,.12),0 10px 28px rgba(16,169,196,.08)!important;
+}
+input:focus,select:focus,textarea:focus{
+  border-color:var(--sparkles-pink)!important;
+  box-shadow:0 0 0 5px rgba(233,30,143,.13)!important;
+}
+.submit,.primary-small,.refresh-button,.pay-button,.assign-button,.match button,.job-actions button:not(.secondary),.cleaner-note-box button:not(.secondary),.button-link.pay-button{
+  background:linear-gradient(135deg,var(--sparkles-pink),#F472B6 58%,var(--sparkles-orange))!important;
+  color:#fff!important;
+  box-shadow:0 16px 36px rgba(233,30,143,.24)!important;
+}
+.submit:hover,.primary-small:hover,.refresh-button:hover,.pay-button:hover,.assign-button:hover,.match button:hover,.job-actions button:not(.secondary):hover{
+  box-shadow:0 20px 48px rgba(233,30,143,.30)!important;
+}
+.secondary:hover,.upload:hover{
+  border-color:var(--sparkles-teal)!important;
+  color:var(--sparkles-teal)!important;
+  background:#ECFEFF!important;
+}
+.tick,.success-icon{
+  background:#ECFEFF!important;
+  color:var(--sparkles-teal)!important;
+}
+.ref,.upload strong,.badge.status-accent{
+  color:var(--sparkles-pink)!important;
+}
+.sparkles-chat-button,.sparkles-chat-form button{
+  background:linear-gradient(135deg,var(--sparkles-pink),var(--sparkles-teal))!important;
+  box-shadow:0 16px 38px rgba(16,169,196,.24)!important;
+}
+.sparkles-chat-head,.source-card{
+  background:linear-gradient(135deg,var(--sparkles-pink),var(--sparkles-orange))!important;
+}
+.bar{
+  background:linear-gradient(180deg,var(--sparkles-orange),var(--sparkles-pink),var(--sparkles-teal))!important;
+}
+.empty,.empty-mini{
+  background:linear-gradient(180deg,#FFF8EF,#FFF7FB)!important;
+  border-color:rgba(242,217,231,.9)!important;
+}
+.empty:before,.empty-mini:before{
+  color:var(--sparkles-orange)!important;
+}
+.login-body{
+  background:
+    radial-gradient(circle at 12% 12%,rgba(245,158,11,.28),transparent 25%),
+    radial-gradient(circle at 84% 8%,rgba(16,169,196,.22),transparent 26%),
+    radial-gradient(circle at 50% 84%,rgba(233,30,143,.22),transparent 32%),
+    linear-gradient(135deg,#FFF8EF 0%,#FFF7FB 48%,#ECFEFF 100%)!important;
+  color:var(--ink)!important;
+}
+.login-copy p,.sparkles-wordmark,.sparkles-wordmark small,.login-body .eyebrow{
+  color:var(--ink)!important;
+}
+.login-trust-row span{
+  background:rgba(255,255,255,.66)!important;
+  border-color:rgba(242,217,231,.9)!important;
+  color:var(--ink)!important;
+}
+.login-card{
+  background:rgba(255,255,255,.92)!important;
+  border-color:rgba(255,255,255,.82)!important;
+  box-shadow:0 28px 90px rgba(233,30,143,.16),0 12px 38px rgba(16,169,196,.08)!important;
+}
+.owner-hero,.booking-hero{
+  background:
+    radial-gradient(circle at 12% 12%,rgba(255,255,255,.70),transparent 18%),
+    radial-gradient(circle at 88% 0%,rgba(16,169,196,.16),transparent 30%),
+    linear-gradient(135deg,#FFF8EF 0%,#FFF0F7 52%,#ECFEFF 100%)!important;
+  color:var(--ink)!important;
+  border-color:rgba(242,217,231,.86)!important;
 }

@@ -30,7 +30,7 @@ document.querySelector('#applyForm').addEventListener('submit', async event => {
     if(!response.ok) throw new Error(result.error || 'Could not submit application.');
     form.reset();
     document.querySelector('#sourceInput').value = source;
-    message.textContent = 'Thanks — your cleaner application has been sent to Sparkles Cleaning Agency.';
+    message.textContent = 'Thanks — your cleaner application has been sent to Sparkles Cleaning Cambridge.';
     message.className = 'form-message success';
   }catch(error){
     message.textContent = error.message;

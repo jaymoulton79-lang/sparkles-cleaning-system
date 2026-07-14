@@ -1,22 +1,26 @@
 /*
   Sparkles Design System
-  UI-only component layer for Sparkles Cleaning Agency.
+  UI-only component layer for Sparkles Cleaning Cambridge.
   Do not place business, booking, payment, auth, API, or database logic here.
 */
 
 :root{
-  --sp-primary:#4A8DFF;
-  --sp-primary-dark:#1677FF;
-  --sp-dark:#020B20;
+  --sp-primary:#E91E8F;
+  --sp-primary-dark:#B91571;
+  --sp-teal:#10A9C4;
+  --sp-orange:#F59E0B;
+  --sp-yellow:#FACC15;
+  --sp-cream:#FFF8EF;
+  --sp-dark:#172033;
   --sp-white:#FFFFFF;
   --sp-success:#22C55E;
   --sp-warning:#F59E0B;
   --sp-danger:#EF4444;
-  --sp-muted:#64748B;
-  --sp-soft:#F5F8FF;
-  --sp-line:#E2E8F0;
-  --sp-blue-50:#EEF5FF;
-  --sp-blue-100:#DCEAFF;
+  --sp-muted:#6B5F6A;
+  --sp-soft:#FFF7FB;
+  --sp-line:#F2D9E7;
+  --sp-blue-50:#FFF0F7;
+  --sp-blue-100:#FCE7F3;
   --sp-green-50:#ECFDF5;
   --sp-amber-50:#FFFBEB;
 
@@ -42,7 +46,7 @@
   --sp-shadow-sm:0 10px 28px rgba(15,23,42,.08);
   --sp-shadow-md:0 20px 55px rgba(15,23,42,.12);
   --sp-shadow-lg:0 30px 90px rgba(15,23,42,.16);
-  --sp-shadow-blue:0 18px 48px rgba(74,141,255,.32);
+  --sp-shadow-blue:0 18px 48px rgba(233,30,143,.24);
 
   --sp-ease:cubic-bezier(.2,.8,.2,1);
   --sp-transition:180ms var(--sp-ease);
@@ -53,9 +57,10 @@ body.sparkles-ds{
   font-family:var(--sp-font);
   color:var(--sp-dark);
   background:
-    radial-gradient(circle at 12% -8%,rgba(74,141,255,.22),transparent 32%),
-    radial-gradient(circle at 88% 4%,rgba(2,11,32,.08),transparent 26%),
-    linear-gradient(180deg,#F7FAFF 0%,#F4F7FC 52%,#FFFFFF 100%);
+    radial-gradient(circle at 12% -8%,rgba(233,30,143,.16),transparent 32%),
+    radial-gradient(circle at 88% 4%,rgba(16,169,196,.16),transparent 26%),
+    radial-gradient(circle at 50% 0%,rgba(245,158,11,.10),transparent 30%),
+    linear-gradient(180deg,#FFF8EF 0%,#FFF7FB 52%,#FFFFFF 100%);
   overflow-x:hidden;
 }
 
@@ -64,7 +69,7 @@ body.sparkles-ds{
   width:44px;height:44px;border-radius:16px;
   display:grid;place-items:center;
   color:var(--sp-white);
-  background:linear-gradient(135deg,var(--sp-primary),#63B3FF 58%,var(--sp-dark) 150%);
+  background:linear-gradient(135deg,var(--sp-primary),var(--sp-orange) 58%,var(--sp-teal) 150%);
   box-shadow:var(--sp-shadow-blue);
   font-weight:900;
 }

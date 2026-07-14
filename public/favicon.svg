@@ -1,6 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Sparkles Cleaning Agency">
-  <rect width="64" height="64" rx="18" fill="#1677FF"/>
-  <path d="M32 10l4.9 13.1L50 28l-13.1 4.9L32 46l-4.9-13.1L14 28l13.1-4.9L32 10z" fill="#fff"/>
-  <circle cx="48" cy="46" r="4" fill="#fff" opacity=".92"/>
-  <circle cx="16" cy="48" r="3" fill="#fff" opacity=".78"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Sparkles Cleaning Cambridge">
+  <rect width="64" height="64" rx="18" fill="#FFF8EF"/>
+  <circle cx="32" cy="32" r="28" fill="#FFFFFF" opacity=".88"/>
+  <path d="M33 16h8c2.8 0 5 2.2 5 5v3H33z" fill="#F59E0B"/>
+  <path d="M37 23h9l-7 8h-5z" fill="#F59E0B"/>
+  <path d="M26 29c0-3 2.4-5.5 5.4-5.5H36v5.8c0 2.7-1 5.2-2.8 7.2L30 40v10H20V40c0-3.2 1.2-6.3 3.4-8.6z" fill="#F59E0B"/>
+  <path d="M13 14l2 5.2 5.2 2-5.2 2-2 5.2-2-5.2-5.2-2 5.2-2z" fill="#10A9C4"/>
+  <path d="M51 14l1.8 4.7 4.7 1.8-4.7 1.8L51 27l-1.8-4.7-4.7-1.8 4.7-1.8z" fill="#FACC15"/>
+  <path d="M49 38l1.5 3.9 3.9 1.5-3.9 1.5L49 49l-1.5-3.9-3.9-1.5 3.9-1.5z" fill="#10A9C4"/>
+  <path d="M8 50c9 5.5 24 7.4 47-2" fill="none" stroke="#E91E8F" stroke-width="4" stroke-linecap="round"/>
 </svg>

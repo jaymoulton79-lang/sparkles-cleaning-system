@@ -1,4 +1,4 @@
-# Sparkles Cleaning Agency Cleaner Recruitment Pack
+# Sparkles Cleaning Cambridge Cleaner Recruitment Pack
 
 Use this to build your first cleaner database before accepting real customer bookings.
 
@@ -27,7 +27,7 @@ https://sparkles-cleaning-system-production.up.railway.app/cleaner/login
 
 ## Facebook / WhatsApp post
 
-Sparkles Cleaning Agency is looking for reliable self-employed cleaners.
+Sparkles Cleaning Cambridge is looking for reliable self-employed cleaners.
 
 We are building a trusted cleaning team for local domestic cleaning jobs.
 
@@ -47,7 +47,7 @@ https://sparkles-cleaning-system-production.up.railway.app/cleaner/apply
 
 ## Short WhatsApp message
 
-Hi, Sparkles Cleaning Agency is looking for reliable cleaners. You can choose your availability, travel area and hourly rate. Apply here:
+Hi, Sparkles Cleaning Cambridge is looking for reliable cleaners. You can choose your availability, travel area and hourly rate. Apply here:
 
 https://sparkles-cleaning-system-production.up.railway.app/cleaner/apply
 
@@ -59,7 +59,7 @@ Self-employed Domestic Cleaner
 
 Description:
 
-Sparkles Cleaning Agency is looking for reliable self-employed cleaners to join our cleaning network.
+Sparkles Cleaning Cambridge is looking for reliable self-employed cleaners to join our cleaning network.
 
 You will be offered domestic cleaning jobs based on your location, availability and services offered.
 
