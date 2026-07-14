@@ -2689,8 +2689,20 @@ class Handler(BaseHTTPRequestHandler):
             email = data.get("email", "").strip().lower()
             password = normalise_password_input(data.get("password", ""))
             with connect() as conn:
-                cleaner = conn.execute("SELECT id,email,password_hash,active FROM cleaners WHERE lower(email)=lower(?)", (email,)).fetchone()
-            if not cleaner or not cleaner["password_hash"] or not verify_password(password, cleaner["password_hash"]):
+                cleaner_rows = conn.execute(
+                    """SELECT id,email,password_hash,active FROM cleaners
+                    WHERE lower(email)=lower(?)
+                    ORDER BY active DESC,
+                    CASE WHEN password_hash IS NOT NULL AND password_hash<>'' THEN 1 ELSE 0 END DESC,
+                    id DESC""",
+                    (email,),
+                ).fetchall()
+            cleaner = None
+            for candidate in cleaner_rows:
+                if candidate["password_hash"] and verify_password(password, candidate["password_hash"]):
+                    cleaner = candidate
+                    break
+            if not cleaner:
                 return self.send_json({"error": "Invalid email or password."}, 401)
             if not cleaner["active"]:
                 return self.send_json({"error": "This cleaner account is not active."}, 403)
@@ -2746,7 +2758,13 @@ class Handler(BaseHTTPRequestHandler):
                 exists = bool(runtime_setting("ADMIN_EMAIL", "").strip().lower() == email)
             elif role == "cleaner":
                 with connect() as conn:
-                    row = conn.execute("SELECT id FROM cleaners WHERE lower(email)=lower(?)", (email,)).fetchone()
+                    row = conn.execute(
+                        """SELECT id FROM cleaners WHERE lower(email)=lower(?)
+                        ORDER BY active DESC,
+                        CASE WHEN password_hash IS NOT NULL AND password_hash<>'' THEN 1 ELSE 0 END DESC,
+                        id DESC""",
+                        (email,),
+                    ).fetchone()
                 exists, subject_id = bool(row), row["id"] if row else None
             else:
                 with connect() as conn:
