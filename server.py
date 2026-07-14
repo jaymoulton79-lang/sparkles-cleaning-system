@@ -135,7 +135,12 @@ def extract_intro_name(message):
     return ""
 
 
+def normalise_password_input(password):
+    return str(password or "").strip()
+
+
 def hash_password(password):
+    password = normalise_password_input(password)
     if not password or len(password) < 8:
         raise ValueError("Password must be at least 8 characters.")
     salt = secrets.token_hex(16)
@@ -145,6 +150,7 @@ def hash_password(password):
 
 def verify_password(password, stored):
     try:
+        password = normalise_password_input(password)
         algorithm, iterations, salt, expected = stored.split("$", 3)
         if algorithm != "pbkdf2_sha256":
             return False
@@ -2681,7 +2687,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = self.read_json()
             email = data.get("email", "").strip().lower()
-            password = data.get("password", "")
+            password = normalise_password_input(data.get("password", ""))
             with connect() as conn:
                 cleaner = conn.execute("SELECT id,email,password_hash,active FROM cleaners WHERE lower(email)=lower(?)", (email,)).fetchone()
             if not cleaner or not cleaner["password_hash"] or not verify_password(password, cleaner["password_hash"]):
@@ -2764,7 +2770,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = self.read_json()
             token = data.get("token", "")
-            password = data.get("password", "")
+            password = normalise_password_input(data.get("password", ""))
             with connect() as conn:
                 reset = conn.execute("SELECT * FROM password_reset_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at>?", (token_hash(token), utcnow().isoformat())).fetchone()
                 if not reset:
@@ -2774,7 +2780,13 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("""INSERT INTO app_config(key,value,is_secret,updated_at) VALUES ('ADMIN_PASSWORD_HASH',?,?,?)
                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (password_hash, 1, utcnow().isoformat()))
                 elif reset["role"] == "cleaner":
+                    cleaner = conn.execute("SELECT id,email FROM cleaners WHERE id=? AND lower(email)=lower(?)", (reset["subject_id"], reset["email"])).fetchone()
+                    if not cleaner:
+                        return self.send_json({"error": "Cleaner account for this setup link was not found. Ask the owner to send a new invite."}, 400)
                     conn.execute("UPDATE cleaners SET password_hash=? WHERE id=?", (password_hash, reset["subject_id"]))
+                    updated = conn.execute("SELECT password_hash FROM cleaners WHERE id=?", (reset["subject_id"],)).fetchone()
+                    if not updated or not verify_password(password, updated["password_hash"]):
+                        return self.send_json({"error": "Cleaner password could not be saved. Ask the owner to send a new invite."}, 500)
                 else:
                     conn.execute("UPDATE customers SET password_hash=? WHERE id=?", (password_hash, reset["subject_id"]))
                 conn.execute("UPDATE password_reset_tokens SET used_at=? WHERE token_hash=?", (utcnow().isoformat(), token_hash(token)))
