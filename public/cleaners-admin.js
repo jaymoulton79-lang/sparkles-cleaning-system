@@ -9,7 +9,7 @@ const money = pennies => new Intl.NumberFormat('en-GB', {style: 'currency', curr
 
 const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const services = ['Regular clean','Deep clean','End of tenancy','One-off clean'];
-const travelMethods = ['Unknown','Car','Public transport','Bicycle','Walk/local only'];
+const travelMethods = ['Unknown','Car/self-driving','Owner/company transport','Public transport','Bicycle','Walk/local only'];
 const licenceStatuses = ['Not provided','Uploaded','Verified','Not held'];
 let cleaners = [];
 
@@ -40,18 +40,51 @@ function createValues(field) {
 }
 
 function selectedOption(value, option) {
-  return String(value || '') === option ? 'selected' : '';
+  const current = String(value || '');
+  if (current === 'Car' && option === 'Car/self-driving') return 'selected';
+  return current === option ? 'selected' : '';
 }
 
 function checkedAttr(value) {
   return Number(value || 0) ? 'checked' : '';
 }
 
+function cleanerSelfDrives(cleaner) {
+  return ['car', 'car/self-driving', 'self-driving'].includes(String(cleaner.travel_method || '').toLowerCase());
+}
+
+function assignmentReadiness(cleaner) {
+  const missing = [];
+  const services = cleaner.services || [];
+  const availability = cleaner.availability || [];
+  if (Number(cleaner.active) === 0) missing.push('active account');
+  if (!cleaner.activated) missing.push('login setup complete');
+  if (!Number(cleaner.identity_verified || 0)) missing.push('ID verified');
+  if (!Number(cleaner.right_to_work_verified || 0)) missing.push('right to work verified');
+  if (!String(cleaner.postcode || '').trim()) missing.push('postcode');
+  if (Number(cleaner.travel_radius || 0) <= 0) missing.push('travel radius');
+  if (!availability.length) missing.push('availability');
+  if (!services.length) missing.push('services');
+  if (cleanerSelfDrives(cleaner)) {
+    if (cleaner.driving_licence_status !== 'Verified') missing.push('verified driving licence');
+    if (!Number(cleaner.has_own_vehicle || 0)) missing.push('own vehicle');
+  }
+  return {ready: missing.length === 0, missing};
+}
+
 function verificationReady(cleaner) {
-  const drives = String(cleaner.travel_method || '').toLowerCase() === 'car';
-  return Number(cleaner.identity_verified || 0)
-    && Number(cleaner.right_to_work_verified || 0)
-    && (!drives || (cleaner.driving_licence_status === 'Verified' && Number(cleaner.has_own_vehicle || 0)));
+  return assignmentReadiness(cleaner).ready;
+}
+
+function travelSummary(cleaner) {
+  const method = cleaner.travel_method === 'Car' ? 'Car/self-driving' : (cleaner.travel_method || 'Unknown');
+  if (cleanerSelfDrives(cleaner)) {
+    return `${esc(method)}<br>Licence: ${esc(cleaner.driving_licence_status || 'Not provided')} · Vehicle: ${Number(cleaner.has_own_vehicle || 0) ? 'Yes' : 'No'}`;
+  }
+  if (method === 'Owner/company transport') {
+    return `${esc(method)}<br>Licence and own vehicle not required`;
+  }
+  return `${esc(method)}<br>Radius-based assignment`;
 }
 
 function showPreviewLink(invite) {
@@ -76,7 +109,8 @@ async function loadCleaners() {
     document.querySelector('#cleanerList').innerHTML = cleaners.map(c => {
       const isActive = Number(c.active) !== 0;
       const activated = Boolean(c.activated);
-      const ready = verificationReady(c);
+      const readiness = assignmentReadiness(c);
+      const ready = readiness.ready;
       return `<article class="cleaner-card ${isActive ? '' : 'inactive'}">
         <div class="cleaner-card-head">
           <div class="avatar">${esc(initials(c.name))}</div>
@@ -89,8 +123,8 @@ async function loadCleaners() {
           <div><span>Available</span>${(c.availability || []).map(esc).join(', ') || 'Not set'}</div>
           <div><span>Services</span>${(c.services || []).map(esc).join(', ') || 'Not set'}</div>
           <div><span>Account</span>${activated ? 'Activated' : 'Invitation pending'}<br>${activated ? 'Cleaner can log in' : 'Cleaner must create password'}</div>
-          <div><span>Travel</span>${esc(c.travel_method || 'Unknown')}<br>${c.travel_method === 'Car' ? `Licence: ${esc(c.driving_licence_status || 'Not provided')} · Vehicle: ${Number(c.has_own_vehicle || 0) ? 'Yes' : 'No'}` : 'Radius-based assignment'}</div>
-          <div><span>Auto assignment</span>${ready ? 'Eligible once active/available' : 'Blocked until checks complete'}</div>
+          <div><span>Travel</span>${travelSummary(c)}</div>
+          <div><span>Ready for automatic assignment</span>${ready ? 'Yes' : `No<br>Missing: ${readiness.missing.map(esc).join(', ')}`}</div>
         </div>
         <details class="cleaner-editor">
           <summary>Edit availability, services & checks</summary>

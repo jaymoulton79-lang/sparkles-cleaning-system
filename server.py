@@ -1195,11 +1195,9 @@ def suitable_cleaners(booking):
             cleaner = dict(row)
             if int(cleaner["id"]) in declined:
                 continue
-            travel_method = str(cleaner.get("travel_method") or "Unknown").strip()
-            drives_to_jobs = travel_method.lower() == "car"
             if not int(cleaner.get("identity_verified") or 0) or not int(cleaner.get("right_to_work_verified") or 0):
                 continue
-            if drives_to_jobs and (
+            if cleaner_self_drives(cleaner) and (
                 str(cleaner.get("driving_licence_status") or "").strip().lower() != "verified"
                 or not int(cleaner.get("has_own_vehicle") or 0)
             ):
@@ -1214,7 +1212,7 @@ def suitable_cleaners(booking):
 
 def cleaner_verification_payload(data, defaults=None):
     defaults = defaults or {}
-    allowed_travel = {"Unknown", "Car", "Public transport", "Bicycle", "Walk/local only"}
+    allowed_travel = {"Unknown", "Car", "Car/self-driving", "Owner/company transport", "Public transport", "Bicycle", "Walk/local only"}
     allowed_licence = {"Not provided", "Uploaded", "Verified", "Not held"}
     travel_method = str(data.get("travel_method", defaults.get("travel_method", "Unknown")) or "Unknown").strip()
     licence_status = str(data.get("driving_licence_status", defaults.get("driving_licence_status", "Not provided")) or "Not provided").strip()
@@ -1230,6 +1228,11 @@ def cleaner_verification_payload(data, defaults=None):
         "driving_licence_status": licence_status,
         "has_own_vehicle": 1 if data.get("has_own_vehicle", defaults.get("has_own_vehicle", False)) else 0,
     }
+
+
+def cleaner_self_drives(cleaner):
+    travel_method = str(cleaner.get("travel_method") or "Unknown").strip().lower()
+    return travel_method in {"car", "car/self-driving", "self-driving"}
 
 
 def automation_handler(job):
@@ -2282,26 +2285,17 @@ class Handler(BaseHTTPRequestHandler):
                 booking_id = int(path.split("/")[3])
                 with connect() as conn:
                     booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
-                    cleaners = conn.execute("SELECT * FROM cleaners WHERE active=1 AND password_hash IS NOT NULL AND password_hash<>''").fetchall()
                 if not booking:
                     return self.send_json({"error": "Booking not found."}, 404)
-                weekday = datetime.fromisoformat(booking["preferred_date"]).strftime("%A")
                 matches = []
-                for row in cleaners:
-                    cleaner = dict(row)
+                for cleaner in suitable_cleaners(dict(booking)):
+                    cleaner = dict(cleaner)
                     cleaner.pop("password_hash", None)
-                    services = json.loads(cleaner["services"])
-                    availability = json.loads(cleaner["availability"])
-                    distance = distance_miles(booking["postcode"], cleaner["postcode"])
-                    cleaner["distance"] = distance
-                    cleaner["services"] = services
-                    cleaner["availability"] = availability
-                    with connect() as schedule_conn:
-                        conflict = cleaner_has_conflict(schedule_conn, cleaner["id"], booking["preferred_date"], booking["preferred_time"], booking_id)
-                    cleaner["is_available"] = weekday in availability and booking["clean_type"] in services and distance <= cleaner["travel_radius"] and not conflict
-                    if cleaner["is_available"]:
-                        matches.append(cleaner)
-                return self.send_json(sorted(matches, key=lambda c: (c["distance"], c["hourly_rate"])))
+                    cleaner["services"] = json.loads(cleaner.get("services") or "[]")
+                    cleaner["availability"] = json.loads(cleaner.get("availability") or "[]")
+                    cleaner["is_available"] = True
+                    matches.append(cleaner)
+                return self.send_json(matches)
             except (ValueError, IndexError):
                 return self.send_json({"error": "Invalid booking."}, 400)
         if path == "/api/customer/bookings":
