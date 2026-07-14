@@ -1155,8 +1155,17 @@ def suitable_cleaners(booking):
     weekday = datetime.fromisoformat(booking["preferred_date"]).strftime("%A")
     matches = []
     with connect() as conn:
+        declined = {
+            int(row["cleaner_id"])
+            for row in conn.execute(
+                "SELECT cleaner_id FROM cleaner_offers WHERE booking_id=? AND status='Declined'",
+                (booking["id"],),
+            ).fetchall()
+        }
         for row in conn.execute("SELECT * FROM cleaners WHERE active=1 AND password_hash IS NOT NULL AND password_hash<>''").fetchall():
             cleaner = dict(row)
+            if int(cleaner["id"]) in declined:
+                continue
             distance = distance_miles(booking["postcode"], cleaner["postcode"])
             if (weekday in json.loads(cleaner["availability"]) and booking["clean_type"] in json.loads(cleaner["services"])
                     and distance <= cleaner["travel_radius"] and not cleaner_has_conflict(conn, cleaner["id"], booking["preferred_date"], booking["preferred_time"], booking["id"])):
@@ -1187,17 +1196,39 @@ def automation_handler(job):
         send_workflow_email(booking_id, booking["email"], f"Complete your Sparkles booking - {booking['reference']}", f"Hello {booking['name']},\n\nWe saved your Sparkles booking request, but the 25% deposit has not been completed yet.\n\nYour quote is £{booking['total_amount']/100:.2f}; the deposit is £{booking['deposit_amount']/100:.2f}.\n\nComplete your booking here: {checkout}\n\nIf you have questions, reply to this email and we will help.")
         automation.timeline(booking_id, "Abandoned booking follow-up sent", "Customer reminded 24 hours after an unpaid booking")
     elif step == "offer_cleaners":
+        if booking.get("cleaner_id"):
+            automation.timeline(booking_id, "Auto assignment skipped", f"Booking is already assigned to {booking.get('cleaner_name') or 'a cleaner'}.")
+            return
         matches = suitable_cleaners(booking)
         if not matches:
-            raise RuntimeError("No suitable cleaners currently available")
-        for cleaner in matches:
-            token = uuid.uuid4().hex
-            with connect() as conn:
-                conn.execute("INSERT OR IGNORE INTO cleaner_offers(booking_id,cleaner_id,token,status,distance,created_at) VALUES (?,?,?,'Offered',?,?)", (booking_id, cleaner["id"], token, cleaner["distance"], datetime.now(timezone.utc).isoformat()))
-                offer = conn.execute("SELECT token FROM cleaner_offers WHERE booking_id=? AND cleaner_id=?", (booking_id, cleaner["id"])).fetchone()
-            link = f"{runtime_setting('PUBLIC_URL', PUBLIC_URL).rstrip('/')}/job-offer?token={offer['token']}"
-            send_workflow_email(booking_id, cleaner["email"], f"New cleaning job near {booking['postcode']}", f"Hello {cleaner['name']},\n\nA {booking['clean_type']} is available on {booking['preferred_date']} ({booking['preferred_time']}), {cleaner['distance']} miles away.\n\nView and accept: {link}")
-        automation.timeline(booking_id, "Job offered", f"Offered to {len(matches)} suitable cleaner(s), nearest first")
+            automation.timeline(booking_id, "Owner attention needed", "No eligible cleaners are available for this paid booking.", "Warning")
+            send_owner_job_alert(
+                booking_id,
+                "No eligible cleaner found",
+                "Sparkles could not automatically assign this paid booking because no active cleaner currently matches the date, service, availability and travel radius. Please add or adjust a cleaner, then assign manually.",
+                "Owner assignment alert",
+            )
+            return
+        cleaner = matches[0]
+        with connect() as conn:
+            if cleaner_has_conflict(conn, cleaner["id"], booking["preferred_date"], booking["preferred_time"], booking_id):
+                automation.timeline(booking_id, "Owner attention needed", f"{cleaner['name']} became unavailable during auto-assignment.", "Warning")
+                send_owner_job_alert(
+                    booking_id,
+                    "Cleaner conflict during auto assignment",
+                    f"Sparkles found {cleaner['name']} as the nearest cleaner, but they became unavailable before assignment. Please review the booking.",
+                    "Owner assignment alert",
+                )
+                return
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute("UPDATE bookings SET cleaner_id=?, status='Assigned', assigned_at=? WHERE id=?", (cleaner["id"], now, booking_id))
+        automation.timeline(booking_id, "Cleaner auto assigned", f"{cleaner['name']} was auto assigned as the nearest eligible cleaner ({cleaner['distance']} miles away).")
+        safe_send_cleaner_job_details_email(booking_id)
+        automation.enqueue(booking_id, "send_confirmations")
+        with connect() as conn:
+            updated = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+        if updated:
+            schedule_booking_reminder(dict(updated))
     elif step == "send_payment_confirmation":
         send_workflow_email(booking_id, booking["email"], f"Deposit received - {booking['reference']}", f"Hello {booking['name']},\n\nThank you. We have received your 25% deposit of £{booking['deposit_amount']/100:.2f} for {booking['clean_type']} on {booking['preferred_date']} ({booking['preferred_time']}).\n\nWe will confirm the assigned cleaner as soon as the job is accepted.\n\nSparkles Cleaning Agency")
         automation.timeline(booking_id, "Payment confirmation sent", "Customer notified after deposit payment")
@@ -4494,6 +4525,14 @@ class Handler(BaseHTTPRequestHandler):
                     if booking["status"] != "Assigned":
                         return self.send_json({"error": "Only assigned jobs can be declined."}, 409)
                     conn.execute("UPDATE bookings SET status='New', cleaner_id=NULL, assigned_at=NULL, declined_at=?, cleaner_notes=CASE WHEN ?<>'' THEN ? ELSE cleaner_notes END WHERE id=?", (now, data.get("notes", "").strip(), data.get("notes", "").strip(), booking_id))
+                    conn.execute(
+                        "INSERT OR IGNORE INTO cleaner_offers(booking_id,cleaner_id,token,status,distance,created_at) VALUES (?,?,?,'Declined',0,?)",
+                        (booking_id, cleaner_id, uuid.uuid4().hex, now),
+                    )
+                    conn.execute(
+                        "UPDATE cleaner_offers SET status='Declined', responded_at=? WHERE booking_id=? AND cleaner_id=?",
+                        (now, booking_id, cleaner_id),
+                    )
                     event, detail, status = "Job declined", f"{cleaner_name} declined the job; booking returned to New for reassignment", "New"
                 elif action == "on_way":
                     if booking["status"] not in ("Accepted", "On My Way"):
@@ -4523,7 +4562,8 @@ class Handler(BaseHTTPRequestHandler):
             if action == "on_way" and send_on_way_email:
                 safe_send_cleaner_on_way_email(booking_id)
             if action == "decline":
-                send_owner_job_alert(booking_id, "Cleaner rejected job", f"{cleaner_name} rejected the assigned job. The booking now needs attention or reassignment.", "Owner rejection alert")
+                automation.enqueue(booking_id, "offer_cleaners", key=f"{booking_id}:offer_cleaners:reassign:{uuid.uuid4().hex}")
+                automation.timeline(booking_id, "Automatic reassignment queued", "Sparkles will try the next eligible cleaner before asking the owner to step in.")
             if action == "complete":
                 automation.enqueue(booking_id, "send_final_invoice")
                 send_owner_job_alert(booking_id, "Cleaner completed job", f"{cleaner_name} marked the job complete. The final invoice workflow can now continue.", "Owner completion alert")
