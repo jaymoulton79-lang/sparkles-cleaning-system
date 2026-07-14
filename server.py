@@ -4602,9 +4602,10 @@ class Handler(BaseHTTPRequestHandler):
             data = self.read_json()
             action = data.get("action")
             now = utcnow().isoformat()
+            cleaner_id = session["subject_id"]
             send_on_way_email = False
             with connect() as conn:
-                booking = conn.execute("SELECT b.*, c.name AS cleaner_name FROM bookings b JOIN cleaners c ON c.id=b.cleaner_id WHERE b.id=? AND b.cleaner_id=? AND c.active=1", (booking_id, session["subject_id"])).fetchone()
+                booking = conn.execute("SELECT b.*, c.name AS cleaner_name FROM bookings b JOIN cleaners c ON c.id=b.cleaner_id WHERE b.id=? AND b.cleaner_id=? AND c.active=1", (booking_id, cleaner_id)).fetchone()
                 if not booking:
                     return self.send_json({"error": "Assigned job not found."}, 404)
                 cleaner_name = booking["cleaner_name"] or session["email"]
