@@ -2762,7 +2762,9 @@ class Handler(BaseHTTPRequestHandler):
             password = data.get("password", "")
             with connect() as conn:
                 customer = conn.execute("SELECT id,email,password_hash FROM customers WHERE lower(email)=lower(?)", (email,)).fetchone()
-            if not customer or not verify_password(password, customer["password_hash"]):
+            if not customer:
+                return self.send_json({"error": "No customer account found for that email. Choose 'Create account instead' first, then your bookings will appear."}, 401)
+            if not verify_password(password, customer["password_hash"]):
                 return self.send_json({"error": "Invalid email or password."}, 401)
             token = self.create_session("customer", customer["id"], customer["email"])
             return self.send_json({"ok": True, "role": "customer"}, headers={"Set-Cookie": self.auth_cookie(token)})

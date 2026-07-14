@@ -3,6 +3,14 @@ const money = p => new Intl.NumberFormat('en-GB', { style: 'currency', currency:
 let register = false;
 const form = document.querySelector('#loginForm'), alertBox = document.querySelector('#authAlert');
 
+async function readJsonResponse(response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
 function setMode() {
   document.querySelectorAll('.register-only').forEach(x => x.style.display = register ? 'flex' : 'none');
   form.querySelector('button').textContent = register ? 'Create account' : 'Log in';
@@ -43,7 +51,7 @@ function bookingRow(b) {
 }
 
 async function showPortal() {
-  const r = await fetch('/api/customer/bookings'), bookings = await r.json();
+  const r = await fetch('/api/customer/bookings', { credentials: 'same-origin', cache: 'no-store' }), bookings = await readJsonResponse(r);
   if (!r.ok) return;
   document.querySelector('#authPanel').hidden = true;
   document.querySelector('#portal').hidden = false;
@@ -76,19 +84,33 @@ async function startBalancePayment(id, button) {
 form.onsubmit = async e => {
   e.preventDefault();
   alertBox.className = 'alert';
+  alertBox.textContent = '';
   const endpoint = register ? '/api/customer/register' : '/api/customer/login';
+  const button = form.querySelector('button[type="submit"]');
+  const oldText = button.textContent;
+  button.disabled = true;
+  button.textContent = register ? 'Creating account...' : 'Logging in...';
   try {
-    const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) }), data = await r.json();
+    const payload = Object.fromEntries(new FormData(form));
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }), data = await readJsonResponse(r);
     if (!r.ok) throw new Error(data.error || 'Could not continue.');
-    showPortal();
+    await showPortal();
   } catch (err) {
     alertBox.textContent = err.message;
     alertBox.className = 'alert error';
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
   }
 };
 
 document.querySelector('#toggleMode').onclick = e => { e.preventDefault(); register = !register; setMode(); };
-document.querySelector('#logout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/customer'; };
+document.querySelector('#logout').onclick = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); location.href = '/customer'; };
 window.startBalancePayment = startBalancePayment;
 setMode();
 showPortal();
