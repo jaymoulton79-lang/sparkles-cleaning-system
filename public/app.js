@@ -43,28 +43,17 @@ form.addEventListener('submit', async e => {
   alertBox.className = 'alert';
   submit.disabled = true;
   submit.textContent = 'Creating secure payment link…';
-  const firstName = escapeHtml(capitaliseName(form.name.value.split(' ')[0] || 'there'));
+  const customer = {
+    name: form.name.value.trim(),
+    phone: form.phone.value.trim(),
+    email: form.email.value.trim()
+  };
+  const firstName = escapeHtml(capitaliseName(customer.name.split(' ')[0] || 'there'));
   try {
     const response = await fetch('/api/bookings', { method: 'POST', body: new FormData(form) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Something went wrong.');
-    const paymentPanel = result.checkout_url
-      ? `<a class="sp-button pay-button" href="${escapeHtml(result.checkout_url)}">Pay 25% deposit securely</a><p class="fine">You’ll be taken to Stripe Checkout. Your booking stays as Deposit Due until payment succeeds.</p>`
-      : `<div class="alert error show">Your booking was saved, but the secure deposit link could not be created just now. Please contact Sparkles Cleaning Agency and we’ll help you complete the deposit.</div>`;
-    document.querySelector('#formCard').innerHTML = `
-      <div class="success booking-success-panel">
-        <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Agency logo"></div>
-        <div class="success-icon">Success</div>
-        <h2>Sparkles booking received, ${firstName}.</h2>
-        <p>Smiles Come Standard. Your quote is ready — pay the 25% deposit to confirm your booking.</p>
-        <p class="ref">${escapeHtml(result.reference)}</p>
-        <div class="success-summary">
-          <div><span>Total</span><strong>${money(result.total_amount)}</strong></div>
-          <div><span>Deposit</span><strong>${money(result.deposit_amount)}</strong></div>
-          <div><span>Status</span><strong>${escapeHtml(result.payment_status)}</strong></div>
-        </div>
-        ${paymentPanel}
-      </div>`;
+    renderBookingSuccess(result, customer, firstName);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     alertBox.textContent = error.message;
@@ -76,10 +65,100 @@ form.addEventListener('submit', async e => {
   }
 });
 
+function renderBookingSuccess(result, customer, firstName) {
+  const paymentPanel = result.checkout_url
+    ? `<a class="sp-button pay-button" href="${escapeHtml(result.checkout_url)}">Pay 25% deposit securely</a><p class="fine">You’ll be taken to Stripe Checkout. Your booking stays as Deposit Due until payment succeeds.</p>`
+    : `<div class="alert error show">Your booking was saved, but the secure deposit link could not be created just now. Please contact Sparkles Cleaning Agency and we’ll help you complete the deposit.</div>`;
+
+  document.querySelector('#formCard').innerHTML = `
+    <div class="success booking-success-panel">
+      <div class="customer-flow-logo"><img src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Agency logo"></div>
+      <div class="success-icon">Success</div>
+      <h2>Sparkles booking received, ${firstName}.</h2>
+      <p>Smiles Come Standard. Your quote is ready — pay the 25% deposit to confirm your booking.</p>
+      <p class="ref">${escapeHtml(result.reference)}</p>
+      <div class="success-summary">
+        <div><span>Total</span><strong>${money(result.total_amount)}</strong></div>
+        <div><span>Deposit</span><strong>${money(result.deposit_amount)}</strong></div>
+        <div><span>Status</span><strong>${escapeHtml(result.payment_status)}</strong></div>
+      </div>
+      ${paymentPanel}
+      ${customerAccountPanel(customer)}
+    </div>`;
+  bindCustomerAccountForm(customer);
+}
+
+function customerAccountPanel(customer) {
+  return `
+    <section class="post-booking-account sp-card">
+      <div>
+        <p class="sp-kicker">Customer Portal</p>
+        <h3>Create your account to manage this booking</h3>
+        <p>Set a password now and next time you can log in to view this booking, check payment status and pay any remaining balance.</p>
+      </div>
+      <form id="postBookingAccountForm">
+        <input type="hidden" name="name" value="${escapeAttr(customer.name)}">
+        <input type="hidden" name="phone" value="${escapeAttr(customer.phone)}">
+        <label>Email</label>
+        <input name="email" type="email" value="${escapeAttr(customer.email)}" autocomplete="email" required>
+        <label>Create password</label>
+        <input name="password" type="password" minlength="8" autocomplete="new-password" required placeholder="At least 8 characters">
+        <button class="sp-button" type="submit">Create customer account</button>
+        <p class="fine">Already have an account? <a href="/customer">Log in to Customer Portal</a></p>
+        <div id="postBookingAccountAlert" class="account-alert"></div>
+      </form>
+    </section>`;
+}
+
+function bindCustomerAccountForm(customer) {
+  const accountForm = document.querySelector('#postBookingAccountForm');
+  const accountAlert = document.querySelector('#postBookingAccountAlert');
+  if (!accountForm) return;
+  accountForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = accountForm.querySelector('button');
+    button.disabled = true;
+    button.textContent = 'Creating account…';
+    accountAlert.className = 'account-alert';
+    accountAlert.textContent = '';
+    try {
+      const payload = Object.fromEntries(new FormData(accountForm));
+      payload.name = payload.name || customer.name;
+      payload.phone = payload.phone || customer.phone;
+      const response = await fetch('/api/customer/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 409) {
+          accountAlert.innerHTML = 'An account already exists for this email. <a href="/customer">Log in to view your booking.</a>';
+          accountAlert.className = 'account-alert warning';
+          return;
+        }
+        throw new Error(data.error || 'Could not create your account.');
+      }
+      accountAlert.innerHTML = 'Account created. <a href="/customer">Open Customer Portal</a>';
+      accountAlert.className = 'account-alert success';
+      button.textContent = 'Account created';
+    } catch (error) {
+      accountAlert.textContent = error.message;
+      accountAlert.className = 'account-alert error';
+      button.disabled = false;
+      button.textContent = 'Create customer account';
+    }
+  });
+}
+
 function escapeHtml(value) {
   const d = document.createElement('div');
   d.textContent = value || '';
   return d.innerHTML;
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll('"', '&quot;');
 }
 
 function capitaliseName(value) {
