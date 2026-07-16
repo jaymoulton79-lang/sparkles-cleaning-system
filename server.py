@@ -2210,8 +2210,17 @@ class Handler(BaseHTTPRequestHandler):
         data = path.read_bytes()
         if path == PUBLIC / "styles.css" and (PUBLIC / "cleaner.css").is_file():
             data += b"\n" + (PUBLIC / "cleaner.css").read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        if path.suffix.lower() == ".html":
+            text = data.decode("utf-8", "replace")
+            if "/sparkles-menu.css" not in text:
+                text = text.replace("</head>", '<link rel="stylesheet" href="/sparkles-menu.css"></head>')
+            if "/sparkles-menu.js" not in text:
+                text = text.replace("</body>", '<script src="/sparkles-menu.js"></script></body>')
+            data = text.encode("utf-8")
+            content_type = "text/html; charset=utf-8"
         self.send_response(200)
-        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
