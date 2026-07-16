@@ -48,7 +48,7 @@ function renderStats(data){
 }
 
 function applyLink(source){
-  return `${location.origin}/become-a-cleaner?source=${encodeURIComponent(source)}`;
+  return `${location.origin}/r/cleaners/${encodeURIComponent(source)}`;
 }
 
 function recruitmentMessage(channel){
@@ -157,6 +157,54 @@ async function loadRecruitment(){
   renderShortlist(data.applicants || []);
 }
 
+function renderAutopilotStatus(data){
+  const counts = data.counts || {};
+  document.querySelector('#autopilotStats').innerHTML = `
+    <div><span>Clicks</span><strong>${counts.clicks || 0}</strong></div>
+    <div><span>Applicants</span><strong>${counts.applicants || 0}</strong></div>
+    <div><span>Recommended</span><strong>${counts.recommended || 0}</strong></div>
+    <div><span>Conversion</span><strong>${counts.conversion_rate || 0}%</strong></div>
+  `;
+
+  const actions = data.actions || [];
+  document.querySelector('#autopilotActions').innerHTML = actions.length
+    ? actions.map(action => `<a class="autopilot-action ${String(action.priority || '').toLowerCase()}" href="${esc(action.href || '#')}">
+        <strong>${esc(action.priority || 'Info')} · ${esc(action.title)}</strong>
+        <span>${esc(action.detail)}</span>
+      </a>`).join('')
+    : '<div class="empty-mini">No owner action needed right now.</div>';
+
+  const sources = data.sources || [];
+  document.querySelector('#trackedSources').innerHTML = sources.map(source => {
+    const text = source.share_text || recruitmentMessage({ source: source.source });
+    const whatsapp = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    const facebook = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(source.tracked_link)}`;
+    return `<article class="tracked-source-card">
+      <div>
+        <h4>${esc(source.label)}</h4>
+        <p>${Number(source.clicks || 0)} click${Number(source.clicks || 0)===1?'':'s'} · ${Number(source.applicants || 0)} applicant${Number(source.applicants || 0)===1?'':'s'} · ${Number(source.conversion_rate || 0)}% conversion</p>
+        <input readonly value="${esc(source.tracked_link)}">
+      </div>
+      <div class="campaign-actions">
+        <button class="secondary" onclick="copyText('${esc(source.tracked_link)}',this)">Copy link</button>
+        <button class="secondary" onclick="copyText(${JSON.stringify(text).replaceAll('"', '&quot;')},this)">Copy post</button>
+        <a class="secondary" href="${whatsapp}" target="_blank" rel="noopener">WhatsApp</a>
+        <a class="secondary" href="${facebook}" target="_blank" rel="noopener">Facebook</a>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function loadAutopilotStatus(){
+  const response = await fetch('/api/ai-recruitment/autopilot-status');
+  const data = await response.json();
+  if(!response.ok){
+    document.querySelector('#trackedSources').innerHTML = '<div class="empty-mini">Could not load recruitment Autopilot status.</div>';
+    return;
+  }
+  renderAutopilotStatus(data);
+}
+
 document.querySelector('#autopilotForm').addEventListener('submit', async event => {
   event.preventDefault();
   const output = document.querySelector('#autopilotOutput');
@@ -226,5 +274,7 @@ document.querySelector('#campaignForm').addEventListener('submit', async event =
 });
 
 document.querySelector('#refreshRecruitment').addEventListener('click', loadRecruitment);
+document.querySelector('#refreshAutopilotStatus').addEventListener('click', loadAutopilotStatus);
 renderEngineLinks();
 loadRecruitment();
+loadAutopilotStatus();

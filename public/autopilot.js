@@ -69,13 +69,14 @@ function renderAutomations() {
           <span>${automation.owner_trigger || 'Only notify the owner when intervention is required.'}</span>
         </div>
         <div>
-          <strong>Phase 1 safety</strong>
+          <strong>Autopilot safety</strong>
           <span>Run Now is dry-run only. It records findings without changing live workflows.</span>
         </div>
       </div>
       <div class="automation-actions">
         <button class="sp-button" data-action="run" data-key="${automation.key}">Run now</button>
         <button class="sp-button sp-button-secondary" data-action="configure" data-key="${automation.key}">Configure</button>
+        ${automation.key === 'cleaner_recruitment' ? '<a class="sp-button sp-button-secondary" href="/admin/ai-recruitment">Open recruitment funnel</a>' : ''}
       </div>
     </article>
   `).join('');

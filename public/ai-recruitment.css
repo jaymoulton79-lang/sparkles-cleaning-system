@@ -12,6 +12,21 @@
 .engine-card p{margin:0 0 10px}
 .engine-card input{width:100%;border:1px solid #d9e5f4;border-radius:13px;padding:10px 12px;background:#fff;color:#35506c;font:inherit}
 .autopilot-note{background:#eff6ff;border:1px solid #bfdbfe;color:#0f3f87;border-radius:20px;padding:16px 18px;margin:0 0 20px;box-shadow:0 12px 34px rgba(20,99,255,.08);line-height:1.55}
+.phase-two-panel{margin-bottom:20px;background:linear-gradient(180deg,#fff,#fff8ef)}
+.phase-two-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.phase-two-stats div{border:1px solid #e5edf7;border-radius:18px;background:#f8fbff;padding:15px}
+.phase-two-stats span{display:block;color:#5f7188;font-size:.78rem;font-weight:900;text-transform:uppercase;letter-spacing:.07em}
+.phase-two-stats strong{display:block;margin-top:4px;font-size:2rem;color:#102033}
+.autopilot-actions{display:grid;gap:10px;margin:0 0 18px}
+.autopilot-action{display:grid;gap:4px;border:1px solid #d9e5f4;border-radius:16px;background:#f8fbff;padding:13px 14px;text-decoration:none;color:#102033}
+.autopilot-action.high{border-color:#fecaca;background:#fff7f7}
+.autopilot-action.medium{border-color:#fde68a;background:#fffbeb}
+.autopilot-action span{color:#5f7188}
+.tracked-source-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
+.tracked-source-card{display:grid;gap:12px;border:1px solid #e5edf7;border-radius:20px;background:#fff;padding:16px}
+.tracked-source-card h4{margin:0 0 6px;color:#102033}
+.tracked-source-card p{margin:0 0 10px}
+.tracked-source-card input{width:100%;border:1px solid #d9e5f4;border-radius:13px;padding:10px 12px;background:#f8fbff;color:#35506c;font:inherit}
 .ai-panel{background:#fff;border:1px solid #e5edf7;border-radius:24px;padding:24px;box-shadow:0 16px 44px rgba(20,99,255,.10)}
 .ai-panel h2{margin:0 0 8px;color:#102033}
 .ai-panel h3{margin:20px 0 10px;color:#102033}
@@ -55,4 +70,4 @@
 .risk-list{margin:0;padding-left:18px;color:#991b1b}
 .shortlist-actions{display:flex;gap:10px;flex-wrap:wrap}
 .shortlist-actions button[disabled]{opacity:.55;cursor:not-allowed}
-@media(max-width:860px){.ai-recruitment-page{padding:28px 14px 56px}.ai-recruitment-grid,.ai-stats{grid-template-columns:1fr}.ai-recruitment-hero,.panel-head{display:grid}.shortlist-actions>*{width:100%;text-align:center}}
+@media(max-width:860px){.ai-recruitment-page{padding:28px 14px 56px}.ai-recruitment-grid,.ai-stats,.phase-two-stats{grid-template-columns:1fr}.ai-recruitment-hero,.panel-head{display:grid}.shortlist-actions>*,.tracked-source-card .campaign-actions>*{width:100%;text-align:center}}

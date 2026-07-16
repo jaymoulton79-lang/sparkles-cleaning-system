@@ -1410,7 +1410,7 @@ POSTGRES_ID_TABLES = {
     "bookings", "cleaners", "cleaner_applicants", "customers", "payments",
     "customer_reviews", "ai_conversations", "ai_messages", "automation_jobs",
     "booking_timeline", "cleaner_applicant_timeline", "cleaner_offers", "email_log", "cleaner_payouts",
-    "automation_runs", "automation_logs", "automation_alerts"
+    "automation_runs", "automation_logs", "automation_alerts", "recruitment_clicks"
 }
 POSTGRES_RESERVED_TABLES = {"workflow_config", "app_config", "sessions", "password_reset_tokens", "archived_stripe_sessions"}
 
@@ -1915,12 +1915,67 @@ def autopilot_log(conn, key, event, detail="", level="Info", run_id=None):
     )
 
 
+def autopilot_alert_once(conn, key, title, detail, level="Needs attention"):
+    existing = conn.execute(
+        "SELECT id FROM automation_alerts WHERE automation_key=? AND title=? AND resolved_at IS NULL LIMIT 1",
+        (key, title),
+    ).fetchone()
+    if existing:
+        return
+    conn.execute(
+        "INSERT INTO automation_alerts(automation_key,title,detail,level,created_at) VALUES (?,?,?,?,?)",
+        (key, title, detail, level, utcnow().isoformat()),
+    )
+
+
+RECRUITMENT_CHANNELS = [
+    ("facebook", "Facebook"),
+    ("whatsapp", "WhatsApp"),
+    ("indeed", "Indeed"),
+    ("google-business-profile", "Google Business Profile"),
+    ("gumtree", "Gumtree"),
+    ("referral", "Referral"),
+    ("qr-code", "QR code"),
+]
+
+
+def normalise_recruitment_source(value):
+    source = re.sub(r"[^a-z0-9\-]+", "-", str(value or "website").strip().lower()).strip("-")
+    return source[:80] or "website"
+
+
+def recruitment_link(source):
+    return f"{public_url().rstrip('/')}/r/cleaners/{urllib.parse.quote(normalise_recruitment_source(source))}"
+
+
+def recruitment_apply_link(source):
+    return f"{public_url().rstrip('/')}/become-a-cleaner?source={urllib.parse.quote(normalise_recruitment_source(source))}"
+
+
+def recruitment_share_text(source="facebook", area="Cambridge and surrounding areas"):
+    link = recruitment_link(source)
+    return (
+        f"Sparkles Cleaning Cambridge is looking for reliable cleaners in {area}.\n\n"
+        "Flexible local cleaning work, choose your availability, friendly support and competitive self-employed rates.\n\n"
+        f"Apply here:\n{link}\n\n"
+        "Smiles Come Standard."
+    )
+
+
 def autopilot_snapshot(conn, key):
     if key == "cleaner_recruitment":
         applicants = conn.execute("SELECT COUNT(*) count FROM cleaner_applicants").fetchone()["count"]
         new_applicants = conn.execute("SELECT COUNT(*) count FROM cleaner_applicants WHERE status IN ('New','Review','Ready to contact')").fetchone()["count"]
         active_cleaners = conn.execute("SELECT COUNT(*) count FROM cleaners WHERE active=1").fetchone()["count"]
-        return f"{applicants} applicants tracked, {new_applicants} awaiting review, {active_cleaners} active cleaners."
+        clicks = table_count(conn, "recruitment_clicks")
+        if new_applicants:
+            autopilot_alert_once(
+                conn,
+                "cleaner_recruitment",
+                "Cleaner applicants need review",
+                f"{new_applicants} applicant(s) are waiting in the recruitment pipeline.",
+            )
+        return f"{applicants} applicants tracked, {new_applicants} awaiting review, {active_cleaners} active cleaners, {clicks} recruitment link visit(s)."
     if key == "booking_communications":
         deposit_due = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status='Deposit Due' AND archived_at IS NULL").fetchone()["count"]
         balance_due = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status='Balance Due' AND archived_at IS NULL").fetchone()["count"]
@@ -2228,6 +2283,14 @@ def initialise():
             level TEXT NOT NULL DEFAULT 'Needs attention',
             created_at TEXT NOT NULL,
             resolved_at TEXT
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS recruitment_clicks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL DEFAULT 'website',
+            landing_url TEXT NOT NULL DEFAULT '',
+            referrer TEXT NOT NULL DEFAULT '',
+            user_agent TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
         )""")
         defaults = [
             ("COMPANY_NAME", "Sparkles Cleaning Cambridge", 0), ("COMPANY_EMAIL", "", 0),
@@ -2556,6 +2619,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.ai_recruitment_summary()
+        if path == "/api/ai-recruitment/autopilot-status":
+            if not self.require_admin():
+                return
+            return self.ai_recruitment_autopilot_status()
         if path.startswith("/api/bookings/") and path.endswith("/matches"):
             if not self.require_admin():
                 return
@@ -2630,6 +2697,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(PUBLIC / "cleaner-login.html")
         if path in ("/cleaner/apply", "/cleaner/apply/", "/become-a-cleaner", "/become-a-cleaner/"):
             return self.send_file(PUBLIC / "cleaner-apply.html")
+        if path.startswith("/r/cleaners/"):
+            return self.track_recruitment_click(path)
         if path in ("/customer", "/customer/", "/customer/login", "/customer/login/"):
             return self.send_file(PUBLIC / "customer.html")
         if path in ("/reset-password", "/reset-password/", "/cleaner/setup", "/cleaner/setup/"):
@@ -3052,6 +3121,26 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             logger.exception("Fresh launch reset failed")
             return self.send_json({"error": "Fresh launch reset failed. Check server logs for details."}, 500)
+
+    def track_recruitment_click(self, path):
+        raw_source = path.split("/r/cleaners/", 1)[1] if "/r/cleaners/" in path else "website"
+        source = normalise_recruitment_source(urllib.parse.unquote(raw_source))
+        landing = recruitment_apply_link(source)
+        try:
+            with connect() as conn:
+                conn.execute(
+                    "INSERT INTO recruitment_clicks(source,landing_url,referrer,user_agent,created_at) VALUES (?,?,?,?,?)",
+                    (
+                        source,
+                        landing,
+                        self.headers.get("Referer", "")[:500],
+                        self.headers.get("User-Agent", "")[:500],
+                        utcnow().isoformat(),
+                    ),
+                )
+        except Exception as error:
+            logger.warning(json.dumps({"recruitment_click": "failed", "source": source, "error": str(error)}))
+        return self.redirect(landing)
 
     def login_admin(self):
         try:
@@ -4582,6 +4671,7 @@ class Handler(BaseHTTPRequestHandler):
                     json.dumps(uploads["driving_licence_uploads"] or data.get("driving_licence_uploads") or []),
                 ))
                 applicant_id = cursor.lastrowid
+                autopilot_log(conn, "cleaner_recruitment", "Cleaner application captured", f"{data['name'].strip()} applied from {source}.")
             applicant_timeline(applicant_id, "Application submitted", f"{source} application received")
             try:
                 send_cleaner_applicant_confirmation(applicant_id)
@@ -4747,6 +4837,103 @@ class Handler(BaseHTTPRequestHandler):
             source_counts[source] = source_counts.get(source, 0) + 1
         return self.send_json({"counts": counts, "sources": source_counts, "applicants": scored})
 
+    def ai_recruitment_autopilot_status(self):
+        with connect() as conn:
+            applicants = [dict(row) for row in conn.execute("SELECT * FROM cleaner_applicants ORDER BY id DESC").fetchall()]
+            click_rows = []
+            if table_exists(conn, "recruitment_clicks"):
+                click_rows = [dict(row) for row in conn.execute("SELECT * FROM recruitment_clicks ORDER BY id DESC LIMIT 500").fetchall()]
+            active_cleaners = table_count(conn, "cleaners", "COALESCE(active,1)=1 AND password_hash IS NOT NULL AND password_hash<>''")
+        scored = []
+        for applicant in applicants:
+            applicant.update(self.score_cleaner_applicant(applicant))
+            scored.append(applicant)
+        sources = {}
+        for source, label in RECRUITMENT_CHANNELS:
+            sources[source] = {
+                "source": source,
+                "label": label,
+                "tracked_link": recruitment_link(source),
+                "apply_link": recruitment_apply_link(source),
+                "share_text": recruitment_share_text(source),
+                "clicks": 0,
+                "applicants": 0,
+            }
+        for click in click_rows:
+            source = normalise_recruitment_source(click.get("source"))
+            sources.setdefault(source, {
+                "source": source,
+                "label": source.replace("-", " ").title(),
+                "tracked_link": recruitment_link(source),
+                "apply_link": recruitment_apply_link(source),
+                "share_text": recruitment_share_text(source),
+                "clicks": 0,
+                "applicants": 0,
+            })
+            sources[source]["clicks"] += 1
+        for applicant in scored:
+            source = normalise_recruitment_source(applicant.get("source"))
+            sources.setdefault(source, {
+                "source": source,
+                "label": source.replace("-", " ").title(),
+                "tracked_link": recruitment_link(source),
+                "apply_link": recruitment_apply_link(source),
+                "share_text": recruitment_share_text(source),
+                "clicks": 0,
+                "applicants": 0,
+            })
+            sources[source]["applicants"] += 1
+        source_list = []
+        for item in sources.values():
+            item["conversion_rate"] = round((item["applicants"] / item["clicks"]) * 100, 1) if item["clicks"] else 0
+            source_list.append(item)
+        source_list.sort(key=lambda item: (item["applicants"], item["clicks"]), reverse=True)
+        recommended = [item for item in scored if item.get("recommendation") in {"Excellent", "Good"} and item.get("status") not in {"Added as Cleaner", "Rejected"}]
+        new_items = [item for item in scored if str(item.get("status") or "New").lower() == "new"]
+        actions = []
+        if recommended:
+            actions.append({
+                "priority": "High",
+                "title": "Review recommended applicants",
+                "detail": f"{len(recommended)} applicant(s) are rated Excellent or Good.",
+                "href": "/admin/cleaner-applicants",
+            })
+        if active_cleaners < 3:
+            actions.append({
+                "priority": "High",
+                "title": "Grow cleaner supply",
+                "detail": f"You currently have {active_cleaners} active cleaner(s). Aim for at least 3 before pushing customer bookings hard.",
+                "href": "/admin/ai-recruitment",
+            })
+        if not click_rows:
+            actions.append({
+                "priority": "Medium",
+                "title": "Start sharing tracked links",
+                "detail": "No recruitment link clicks have been recorded yet. Share the Facebook or WhatsApp link first.",
+                "href": "/admin/ai-recruitment",
+            })
+        if new_items and not recommended:
+            actions.append({
+                "priority": "Medium",
+                "title": "Review new applicants",
+                "detail": f"{len(new_items)} applicant(s) are waiting for review.",
+                "href": "/admin/cleaner-applicants",
+            })
+        return self.send_json({
+            "counts": {
+                "clicks": len(click_rows),
+                "applicants": len(scored),
+                "recommended": len(recommended),
+                "new": len(new_items),
+                "active_cleaners": active_cleaners,
+                "conversion_rate": round((len(scored) / len(click_rows)) * 100, 1) if click_rows else 0,
+            },
+            "sources": source_list,
+            "actions": actions,
+            "recommended_applicants": recommended[:8],
+            "safe_note": "Sparkles tracks links and applications only. It does not scrape Facebook, Indeed or WhatsApp.",
+        })
+
     def ai_recruitment_campaign_copy(self):
         try:
             data = self.read_json()
@@ -4755,7 +4942,7 @@ class Handler(BaseHTTPRequestHandler):
             rate = str(data.get("rate") or "competitive rates").strip()
             benefits = str(data.get("benefits") or "choose your availability, travel area and services").strip()
             source = channel.lower().replace(" ", "-")
-            apply_link = f"{public_url().rstrip('/')}/become-a-cleaner?source={urllib.parse.quote(source)}"
+            apply_link = recruitment_link(source)
             title = "Self-employed Domestic Cleaner"
             if channel.lower() in {"facebook", "whatsapp", "nextdoor"}:
                 body = (
@@ -4794,7 +4981,7 @@ class Handler(BaseHTTPRequestHandler):
             channels = channels[:6] or ["Facebook", "Indeed", "WhatsApp", "Gumtree"]
             daily_target = max(1, round(target / 7))
             apply_links = {
-                channel: f"{public_url().rstrip('/')}/become-a-cleaner?source={urllib.parse.quote(channel.lower().replace(' ', '-'))}"
+                channel: recruitment_link(channel.lower().replace(" ", "-"))
                 for channel in channels
             }
             checklist = [
