@@ -116,6 +116,31 @@
   font-size:.9rem;
 }
 
+.automation-stats{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+
+.automation-stats span{
+  display:block;
+  padding:10px;
+  border:1px solid var(--sp-line);
+  border-radius:16px;
+  background:#fff;
+  color:var(--sp-muted);
+  font-size:.78rem;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+
+.automation-stats strong{
+  font-size:1.25rem;
+  line-height:1;
+  margin-bottom:4px;
+}
+
 .automation-actions{
   margin-top:auto;
   display:flex;

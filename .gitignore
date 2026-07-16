@@ -7,4 +7,6 @@ __pycache__/
 *.log
 tmp_fresh_launch_reset*.db
 tmp_saas_audit_*.db
+autopilot_smoke_test.db
+tmp_autopilot_*.db
 work/

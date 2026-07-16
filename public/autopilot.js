@@ -65,12 +65,29 @@ function renderAutomations() {
       </div>
       <div class="automation-meta">
         <div>
+          <strong>Mode</strong>
+          <span>${automation.mode || 'Dry run'}</span>
+        </div>
+        <div>
+          <strong>Last run</strong>
+          <span>${automation.last_run ? fmtDate(automation.last_run) : 'Not run yet'}</span>
+        </div>
+        <div>
+          <strong>Next run</strong>
+          <span>${automation.next_run ? (String(automation.next_run).includes('T') ? fmtDate(automation.next_run) : automation.next_run) : 'Runs when triggered'}</span>
+        </div>
+        <div class="automation-stats">
+          <span><strong>${automation.success_count || 0}</strong>Success</span>
+          <span><strong>${automation.failure_count || 0}</strong>Failed</span>
+          <span><strong>${automation.needs_attention_count || 0}</strong>Needs attention</span>
+        </div>
+        <div>
           <strong>Owner notification rule</strong>
           <span>${automation.owner_trigger || 'Only notify the owner when intervention is required.'}</span>
         </div>
         <div>
           <strong>Autopilot safety</strong>
-          <span>Run Now is dry-run only. It records findings without changing live workflows.</span>
+          <span>Run Now is safe by default. Dry-run records findings without changing live workflows.</span>
         </div>
       </div>
       <div class="automation-actions">

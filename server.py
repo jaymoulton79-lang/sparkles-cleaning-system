@@ -765,10 +765,12 @@ def create_checkout(booking, payment_type):
 def create_balance_invoice(conn, booking):
     if not runtime_setting("STRIPE_SECRET_KEY", STRIPE_SECRET_KEY) or booking["payment_status"] == "Paid in Full":
         return None
+    if booking["payment_status"] == "Balance Due" and booking["balance_payment_url"]:
+        return {"id": booking["stripe_invoice_id"] or "", "hosted_invoice_url": booking["balance_payment_url"], "url": booking["balance_payment_url"]}
     checkout = create_checkout(booking, "balance")
     conn.execute(
-        "UPDATE bookings SET balance_payment_url=?, payment_status='Balance Due' WHERE id=?",
-        (checkout["url"], booking["id"]),
+        "UPDATE bookings SET balance_payment_url=?, stripe_invoice_id=COALESCE(NULLIF(stripe_invoice_id,''), ?), payment_status='Balance Due' WHERE id=?",
+        (checkout["url"], checkout["id"], booking["id"]),
     )
     return {"id": checkout["id"], "hosted_invoice_url": checkout["url"], "url": checkout["url"]}
 
@@ -1365,15 +1367,26 @@ def automation_handler(job):
         send_workflow_email(booking_id, booking["cleaner_email"], f"Job confirmed – {booking['reference']}", f"Hello {booking['cleaner_name']},\n\nYou are confirmed for {booking['address']}, {booking['postcode']} on {booking['preferred_date']} ({booking['preferred_time']}).")
         automation.timeline(booking_id, "Confirmations sent", f"Customer and {booking['cleaner_name']} notified; booking is on the calendar")
     elif step == "send_reminder":
+        with connect() as conn:
+            already_sent = conn.execute("SELECT 1 FROM booking_timeline WHERE booking_id=? AND event='24-hour reminders sent' LIMIT 1", (booking_id,)).fetchone()
+        if already_sent:
+            automation.timeline(booking_id, "Reminder skipped", "24-hour reminders were already sent for this booking.")
+            return
         send_workflow_email(booking_id, booking["email"], f"Reminder: your clean is tomorrow", f"Your Sparkles clean is tomorrow, {booking['preferred_date']} ({booking['preferred_time']}). Cleaner: {booking['cleaner_name']}.")
         send_workflow_email(booking_id, booking["cleaner_email"], f"Reminder: cleaning job tomorrow", f"Reminder for {booking['address']}, {booking['postcode']} tomorrow ({booking['preferred_time']}).")
         automation.timeline(booking_id, "24-hour reminders sent", "Customer and cleaner reminded")
     elif step == "send_final_invoice":
         with connect() as conn:
-            invoice = create_balance_invoice(conn, conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone())
+            current_booking = conn.execute("SELECT * FROM bookings WHERE id=?", (booking_id,)).fetchone()
+            invoice = create_balance_invoice(conn, current_booking)
             url = invoice.get("hosted_invoice_url") if invoice else booking["balance_payment_url"]
         if not url:
             raise RuntimeError("Stripe invoice URL is not available")
+        with connect() as conn:
+            already_sent = conn.execute("SELECT 1 FROM booking_timeline WHERE booking_id=? AND event='Final invoice sent' LIMIT 1", (booking_id,)).fetchone()
+        if already_sent:
+            automation.timeline(booking_id, "Final invoice skipped", "Final invoice was already sent; Sparkles kept the existing balance payment link.")
+            return
         rows = [
             ("Booking reference", booking["reference"]),
             ("Service", booking["clean_type"]),
@@ -1397,6 +1410,11 @@ def automation_handler(job):
         if booking["payment_status"] != "Paid in Full":
             automation.timeline(booking_id, "Review deferred", f"Payment status is {booking['payment_status']}; waiting for final payment", "Warning")
             raise RuntimeError("Final payment has not been confirmed yet.")
+        with connect() as conn:
+            already_sent = conn.execute("SELECT 1 FROM booking_timeline WHERE booking_id=? AND event='Review requested' LIMIT 1", (booking_id,)).fetchone()
+        if already_sent:
+            automation.timeline(booking_id, "Review request skipped", "Review request was already sent for this booking.")
+            return
         review_url = runtime_setting("REVIEW_URL", "") or f"{runtime_setting('PUBLIC_URL', PUBLIC_URL).rstrip('/')}/review-thanks?booking={booking_id}"
         customer_name = display_customer_name(booking["name"])
         send_workflow_email(booking_id, booking["email"], "How did we do?", f"Hello {customer_name},\n\nThank you for your payment. We would love your feedback: {review_url}")
@@ -1830,9 +1848,10 @@ AUTOPILOT_AUTOMATIONS = [
     {
         "key": "cleaner_recruitment",
         "name": "Cleaner Recruitment",
-        "summary": "Track applicant flow, recruitment links and owner follow-up prompts.",
-        "owner_trigger": "Only notify if applicants need review or recruitment goes quiet.",
+        "summary": "Track recruitment links, applications, AI scoring and cleaner invitation readiness.",
+        "owner_trigger": "Only notify if applicants need review, follow-up or recruitment goes quiet.",
         "config": {
+            "mode": "Dry run",
             "target_applicants_per_week": "10",
             "recruitment_area": "Cambridge and surrounding areas",
             "channels": "Facebook, WhatsApp, Indeed, Google Business Profile",
@@ -1840,25 +1859,39 @@ AUTOPILOT_AUTOMATIONS = [
         },
     },
     {
-        "key": "booking_communications",
-        "name": "Booking Communications",
-        "summary": "Monitor quote, deposit, assignment and final-balance communications.",
-        "owner_trigger": "Only notify if a booking communication fails or needs manual attention.",
+        "key": "booking_autopilot",
+        "name": "Booking Autopilot",
+        "summary": "Confirm paid bookings, find eligible cleaners and monitor automatic reassignment.",
+        "owner_trigger": "Only notify if no eligible cleaner is available or reassignment fails.",
         "config": {
-            "deposit_follow_up_hours": "24",
-            "final_balance_follow_up_days": "2",
-            "owner_copy_enabled": "Yes",
+            "mode": "Live",
+            "auto_assign_after_deposit": "Yes",
+            "exclude_declined_cleaners": "Yes",
+            "owner_alert_if_no_cleaner": "Yes",
         },
     },
     {
-        "key": "customer_reminders",
-        "name": "Customer Reminders",
-        "summary": "Monitor upcoming bookings and reminder readiness.",
-        "owner_trigger": "Only notify if a reminder cannot be prepared safely.",
+        "key": "cleaner_operations",
+        "name": "Cleaner Operations",
+        "summary": "Monitor cleaner reminders, on-my-way updates, rejections and no-show risk.",
+        "owner_trigger": "Only notify if a cleaner rejects, misses acceptance or cannot be replaced.",
         "config": {
+            "mode": "Live",
             "clean_reminder_hours_before": "24",
+            "late_acceptance_warning_hours": "12",
+            "owner_alert_on_rejection": "Yes",
+        },
+    },
+    {
+        "key": "customer_payment",
+        "name": "Customer Payment",
+        "summary": "Monitor deposits, final invoices, balance reminders and review requests.",
+        "owner_trigger": "Only notify if payment fails, balance is overdue or a payment email fails.",
+        "config": {
+            "mode": "Live",
+            "deposit_follow_up_hours": "24",
+            "final_balance_follow_up_days": "2",
             "review_request_after_paid": "Yes",
-            "friendly_tone": "Warm and professional",
         },
     },
     {
@@ -1867,12 +1900,24 @@ AUTOPILOT_AUTOMATIONS = [
         "summary": "Prepare a daily owner summary of bookings, payments and cleaner activity.",
         "owner_trigger": "Only notify if there is something needing owner intervention.",
         "config": {
+            "mode": "Dry run",
             "briefing_time": "08:00",
             "include_revenue": "Yes",
             "include_attention_items": "Yes",
         },
     },
 ]
+
+AUTOPILOT_WORKFLOW_STEPS = {
+    "booking_autopilot": ("offer_cleaners", "send_confirmations"),
+    "cleaner_operations": ("send_reminder",),
+    "customer_payment": ("send_payment_confirmation", "send_abandoned_followup", "send_final_invoice", "send_review"),
+}
+
+LEGACY_AUTOPILOT_KEYS = {
+    "booking_communications": "booking_autopilot",
+    "customer_reminders": "cleaner_operations",
+}
 
 
 def autopilot_catalog():
@@ -1884,6 +1929,11 @@ def ensure_autopilot_defaults(conn):
     for item in AUTOPILOT_AUTOMATIONS:
         existing = conn.execute("SELECT key FROM automation_settings WHERE key=?", (item["key"],)).fetchone()
         if not existing:
+            legacy_key = next((old for old, new in LEGACY_AUTOPILOT_KEYS.items() if new == item["key"]), None)
+            legacy = conn.execute("SELECT * FROM automation_settings WHERE key=?", (legacy_key,)).fetchone() if legacy_key else None
+            enabled = legacy["enabled"] if legacy else 0
+            config = autopilot_config(legacy["config_json"]) if legacy else {}
+            config = {**item["config"], **config}
             conn.execute(
                 """INSERT INTO automation_settings(key,name,summary,enabled,config_json,owner_trigger,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,?)""",
@@ -1891,13 +1941,32 @@ def ensure_autopilot_defaults(conn):
                     item["key"],
                     item["name"],
                     item["summary"],
-                    0,
-                    json.dumps(item["config"]),
+                    enabled,
+                    json.dumps(config),
                     item["owner_trigger"],
                     now,
                     now,
                 ),
             )
+        else:
+            current = dict(conn.execute("SELECT * FROM automation_settings WHERE key=?", (item["key"],)).fetchone())
+            config = {**item["config"], **autopilot_config(current.get("config_json"))}
+            conn.execute(
+                """UPDATE automation_settings
+                SET name=?, summary=?, owner_trigger=?, config_json=?, updated_at=?
+                WHERE key=?""",
+                (item["name"], item["summary"], item["owner_trigger"], json.dumps(config), now, item["key"]),
+            )
+        steps = autopilot_workflow_step_list(item["key"])
+        if steps:
+            try:
+                placeholders = ",".join("?" for _ in steps)
+                rows = conn.execute(f"SELECT enabled FROM workflow_config WHERE step IN ({placeholders})", list(steps)).fetchall()
+                if rows:
+                    live_enabled = 1 if all(row["enabled"] for row in rows) else 0
+                    conn.execute("UPDATE automation_settings SET enabled=?,updated_at=? WHERE key=?", (live_enabled, now, item["key"]))
+            except DB_ERROR_TYPES:
+                pass
 
 
 def autopilot_config(config_json):
@@ -1926,6 +1995,90 @@ def autopilot_alert_once(conn, key, title, detail, level="Needs attention"):
         "INSERT INTO automation_alerts(automation_key,title,detail,level,created_at) VALUES (?,?,?,?,?)",
         (key, title, detail, level, utcnow().isoformat()),
     )
+
+
+def autopilot_workflow_step_list(key):
+    return AUTOPILOT_WORKFLOW_STEPS.get(key, ())
+
+
+def autopilot_workflow_where(key):
+    steps = autopilot_workflow_step_list(key)
+    if not steps:
+        return "", []
+    placeholders = ",".join("?" for _ in steps)
+    return f"step IN ({placeholders})", list(steps)
+
+
+def autopilot_count_runs(conn, key, status):
+    return conn.execute(
+        "SELECT COUNT(*) count FROM automation_runs WHERE automation_key=? AND status=?",
+        (key, status),
+    ).fetchone()["count"]
+
+
+def autopilot_count_jobs(conn, key, status):
+    where, params = autopilot_workflow_where(key)
+    if not where:
+        return 0
+    return conn.execute(
+        f"SELECT COUNT(*) count FROM automation_jobs WHERE {where} AND status=?",
+        [*params, status],
+    ).fetchone()["count"]
+
+
+def autopilot_next_run(conn, key):
+    where, params = autopilot_workflow_where(key)
+    if where:
+        row = conn.execute(
+            f"""SELECT MIN(run_after) next_run FROM automation_jobs
+            WHERE {where} AND status IN ('Pending','Retrying')""",
+            params,
+        ).fetchone()
+        if row and row["next_run"]:
+            return row["next_run"]
+    if key == "owner_daily_briefing":
+        setting = conn.execute("SELECT config_json FROM automation_settings WHERE key=?", (key,)).fetchone()
+        config = autopilot_config(setting["config_json"] if setting else "{}")
+        return f"Daily at {config.get('briefing_time', '08:00')}"
+    return "Runs when triggered"
+
+
+def autopilot_last_run(conn, key):
+    where, params = autopilot_workflow_where(key)
+    candidates = []
+    run = conn.execute(
+        "SELECT MAX(COALESCE(finished_at, started_at)) value FROM automation_runs WHERE automation_key=?",
+        (key,),
+    ).fetchone()
+    if run and run["value"]:
+        candidates.append(run["value"])
+    if where:
+        job = conn.execute(
+            f"SELECT MAX(updated_at) value FROM automation_jobs WHERE {where}",
+            params,
+        ).fetchone()
+        if job and job["value"]:
+            candidates.append(job["value"])
+    return max(candidates) if candidates else ""
+
+
+def autopilot_attention_count(conn, key):
+    return conn.execute(
+        "SELECT COUNT(*) count FROM automation_alerts WHERE automation_key=? AND resolved_at IS NULL",
+        (key,),
+    ).fetchone()["count"]
+
+
+def autopilot_item_stats(conn, key):
+    success = autopilot_count_runs(conn, key, "Completed") + autopilot_count_jobs(conn, key, "Completed")
+    failures = autopilot_count_runs(conn, key, "Failed") + autopilot_count_jobs(conn, key, "Failed")
+    return {
+        "last_run": autopilot_last_run(conn, key),
+        "next_run": autopilot_next_run(conn, key),
+        "success_count": success,
+        "failure_count": failures,
+        "needs_attention_count": autopilot_attention_count(conn, key),
+    }
 
 
 RECRUITMENT_CHANNELS = [
@@ -1968,28 +2121,70 @@ def autopilot_snapshot(conn, key):
         new_applicants = conn.execute("SELECT COUNT(*) count FROM cleaner_applicants WHERE status IN ('New','Review','Ready to contact')").fetchone()["count"]
         active_cleaners = conn.execute("SELECT COUNT(*) count FROM cleaners WHERE active=1").fetchone()["count"]
         clicks = table_count(conn, "recruitment_clicks")
+        incomplete = conn.execute("""SELECT COUNT(*) count FROM cleaner_applicants
+            WHERE status IN ('New','Review','Ready to contact')
+            AND (email='' OR phone='' OR postcode='' OR services='' OR availability='')""").fetchone()["count"]
         if new_applicants:
             autopilot_alert_once(
                 conn,
                 "cleaner_recruitment",
                 "Cleaner applicants need review",
-                f"{new_applicants} applicant(s) are waiting in the recruitment pipeline.",
+                f"{new_applicants} applicant(s) are waiting in the recruitment pipeline. Recommended action: open /admin/cleaner-applicants and review strong applicants.",
             )
-        return f"{applicants} applicants tracked, {new_applicants} awaiting review, {active_cleaners} active cleaners, {clicks} recruitment link visit(s)."
-    if key == "booking_communications":
+        if incomplete:
+            autopilot_alert_once(
+                conn,
+                "cleaner_recruitment",
+                "Incomplete cleaner applications need follow-up",
+                f"{incomplete} applicant(s) are missing key details. Sparkles has not rejected them automatically. Recommended action: request the missing details.",
+            )
+        return f"{applicants} applicants tracked, {new_applicants} awaiting review, {incomplete} incomplete, {active_cleaners} active cleaners, {clicks} recruitment link visit(s)."
+    if key == "booking_autopilot":
+        paid_unassigned = conn.execute("""SELECT COUNT(*) count FROM bookings
+            WHERE archived_at IS NULL
+            AND cleaner_id IS NULL
+            AND status NOT IN ('Completed','Cancelled')
+            AND payment_status IN ('Deposit Paid','Balance Due','Paid in Full')""").fetchone()["count"]
+        failed_assignments = autopilot_count_jobs(conn, key, "Failed")
+        if paid_unassigned:
+            autopilot_alert_once(
+                conn,
+                "booking_autopilot",
+                "Paid bookings need cleaner assignment",
+                f"{paid_unassigned} paid booking(s) do not yet have a cleaner. Sparkles will use eligible cleaners first; if none are available, assign manually from /admin/bookings.",
+            )
+        return f"{paid_unassigned} paid booking(s) waiting for assignment, {failed_assignments} failed assignment workflow(s)."
+    if key == "cleaner_operations":
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
+        tomorrow_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=? AND archived_at IS NULL", (tomorrow,)).fetchone()["count"]
+        declined = table_count(conn, "cleaner_offers", "status='Declined'")
+        in_progress = conn.execute("SELECT COUNT(*) count FROM bookings WHERE status='In Progress' AND archived_at IS NULL").fetchone()["count"]
+        return f"{tomorrow_bookings} booking(s) scheduled for tomorrow, {in_progress} in progress, {declined} cleaner rejection record(s)."
+    if key == "customer_payment":
         deposit_due = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status='Deposit Due' AND archived_at IS NULL").fetchone()["count"]
         balance_due = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status='Balance Due' AND archived_at IS NULL").fetchone()["count"]
         failed_emails = table_count(conn, "email_log", "status IN ('Failed','Error')")
-        return f"{deposit_due} bookings awaiting deposit, {balance_due} balances due, {failed_emails} failed email records."
-    if key == "customer_reminders":
-        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
-        tomorrow_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=? AND archived_at IS NULL", (tomorrow,)).fetchone()["count"]
-        return f"{tomorrow_bookings} booking(s) scheduled for tomorrow."
+        failed_payment_jobs = autopilot_count_jobs(conn, key, "Failed")
+        if failed_emails:
+            autopilot_alert_once(
+                conn,
+                "customer_payment",
+                "Email delivery failure detected",
+                f"{failed_emails} failed email record(s) exist. Recommended action: open /admin/diagnostics and check email provider logs.",
+            )
+        return f"{deposit_due} bookings awaiting deposit, {balance_due} balances due, {failed_emails} failed email records, {failed_payment_jobs} failed payment workflow(s)."
     if key == "owner_daily_briefing":
         today = datetime.now().date().isoformat()
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
         today_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=? AND archived_at IS NULL", (today,)).fetchone()["count"]
+        tomorrow_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=? AND archived_at IS NULL", (tomorrow,)).fetchone()["count"]
+        unassigned = conn.execute("SELECT COUNT(*) count FROM bookings WHERE cleaner_id IS NULL AND archived_at IS NULL AND status NOT IN ('Completed','Cancelled')").fetchone()["count"]
+        balances = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status='Balance Due' AND archived_at IS NULL").fetchone()["count"]
+        applicants = conn.execute("SELECT COUNT(*) count FROM cleaner_applicants WHERE status IN ('New','Review','Ready to contact')").fetchone()["count"]
         open_attention = conn.execute("SELECT COUNT(*) count FROM automation_alerts WHERE resolved_at IS NULL").fetchone()["count"]
-        return f"{today_bookings} job(s) today and {open_attention} Autopilot attention item(s)."
+        if not open_attention:
+            return f"No urgent action required. {today_bookings} job(s) today, {tomorrow_bookings} tomorrow, {unassigned} unassigned, {balances} outstanding balance(s), {applicants} applicant(s) awaiting review."
+        return f"{today_bookings} job(s) today, {tomorrow_bookings} tomorrow, {unassigned} unassigned, {balances} outstanding balance(s), {applicants} applicant(s), {open_attention} attention item(s)."
     return "Dry run completed."
 
 
@@ -1998,10 +2193,15 @@ def autopilot_payload():
         ensure_autopilot_defaults(conn)
         order = {item["key"]: index for index, item in enumerate(AUTOPILOT_AUTOMATIONS)}
         settings = []
+        catalog_keys = set(order)
         for row in conn.execute("SELECT * FROM automation_settings ORDER BY key").fetchall():
             item = dict(row)
+            if item.get("key") not in catalog_keys:
+                continue
             item["enabled"] = bool(item.get("enabled"))
             item["config"] = autopilot_config(item.get("config_json"))
+            item["mode"] = item["config"].get("mode", "Dry run")
+            item.update(autopilot_item_stats(conn, item["key"]))
             item.pop("config_json", None)
             settings.append(item)
         settings.sort(key=lambda item: order.get(item["key"], 999))
@@ -3039,6 +3239,8 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as conn:
                 ensure_autopilot_defaults(conn)
                 conn.execute("UPDATE automation_settings SET enabled=?,updated_at=? WHERE key=?", (enabled, now, key))
+                for step in autopilot_workflow_step_list(key):
+                    conn.execute("UPDATE workflow_config SET enabled=? WHERE step=?", (enabled, step))
                 autopilot_log(conn, key, "Automation enabled" if enabled else "Automation disabled", "Owner changed the Autopilot switch.")
             return self.send_json(autopilot_payload())
         except (ValueError, TypeError, json.JSONDecodeError) as error:

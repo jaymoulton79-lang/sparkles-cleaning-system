@@ -47,6 +47,44 @@ def initialise(conn):
     conn.executemany("INSERT OR IGNORE INTO workflow_config(step,label) VALUES (?,?)", steps)
 
 
+def workflow_to_autopilot_key(step):
+    if step in {"offer_cleaners", "send_confirmations"}:
+        return "booking_autopilot"
+    if step in {"send_reminder"}:
+        return "cleaner_operations"
+    if step in {"send_payment_confirmation", "send_abandoned_followup", "send_final_invoice", "send_review"}:
+        return "customer_payment"
+    return "booking_autopilot"
+
+
+def alert_once(conn, automation_key, title, detail, level="Needs attention"):
+    try:
+        existing = conn.execute(
+            "SELECT id FROM automation_alerts WHERE automation_key=? AND title=? AND resolved_at IS NULL LIMIT 1",
+            (automation_key, title),
+        ).fetchone()
+        if existing:
+            return
+        conn.execute(
+            "INSERT INTO automation_alerts(automation_key,title,detail,level,created_at) VALUES (?,?,?,?,?)",
+            (automation_key, title, detail, level, now()),
+        )
+    except Exception:
+        # Autopilot tables may not exist during early startup/migration. Never let
+        # alert recording break the proven booking workflow worker.
+        pass
+
+
+def automation_log(conn, automation_key, event, detail, level="Info"):
+    try:
+        conn.execute(
+            "INSERT INTO automation_logs(automation_key,event,detail,level,created_at) VALUES (?,?,?,?,?)",
+            (automation_key, event, detail, level, now()),
+        )
+    except Exception:
+        pass
+
+
 def timeline(booking_id, event, detail, level="Info"):
     with _connect() as conn:
         conn.execute("INSERT INTO booking_timeline(booking_id,event,detail,level,created_at) VALUES (?,?,?,?,?)", (booking_id, event, detail, level, now()))
@@ -88,6 +126,15 @@ def worker_loop():
             if not job:
                 time.sleep(2)
                 continue
+            skipped_label = None
+            with _connect() as conn:
+                config = conn.execute("SELECT enabled,label FROM workflow_config WHERE step=?", (job["step"],)).fetchone()
+                if config and not config["enabled"]:
+                    conn.execute("UPDATE automation_jobs SET status='Skipped',last_error=NULL,updated_at=? WHERE id=?", (now(), job["id"]))
+                    skipped_label = config["label"]
+            if skipped_label:
+                timeline(job["booking_id"], "Automation skipped", f"{skipped_label} is paused in Sparkles Autopilot.", "Warning")
+                continue
             try:
                 _handler(dict(job))
                 with _connect() as conn:
@@ -99,6 +146,17 @@ def worker_loop():
                 retry_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
                 with _connect() as conn:
                     conn.execute("UPDATE automation_jobs SET status=?,last_error=?,run_after=?,updated_at=? WHERE id=?", ("Failed" if failed else "Retrying", str(error), retry_at, now(), job["id"]))
+                    if failed:
+                        automation_key = workflow_to_autopilot_key(job["step"])
+                        booking = conn.execute("SELECT reference FROM bookings WHERE id=?", (job["booking_id"],)).fetchone()
+                        reference = booking["reference"] if booking else f"Booking #{job['booking_id']}"
+                        detail = (
+                            f"{reference}: workflow step '{job['step']}' failed after {attempts} attempt(s). "
+                            f"Sparkles already retried it automatically. Last error: {error}. "
+                            f"Recommended action: open /admin/bookings and review the booking timeline."
+                        )
+                        alert_once(conn, automation_key, f"{job['step']} failed after retries", detail)
+                        automation_log(conn, automation_key, "Workflow failed after retries", detail, "Error")
                 timeline(job["booking_id"], "Automation failed", f"{job['step']}: {error}", "Error")
         except Exception as error:
             print("Automation worker error:", error)
