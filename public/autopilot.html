@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Sparkles Autopilot | Sparkles Cleaning Cambridge</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/sparkles-design-system.css">
+  <link rel="stylesheet" href="/autopilot.css">
+</head>
+<body class="sparkles-ds autopilot-page">
+  <div class="topbar"></div>
+  <header class="sp-nav">
+    <nav class="sp-nav-inner">
+      <a class="sp-wordmark" href="/">
+        <img class="sp-logo-img" src="/assets/sparkles-premium-logo.jpg" alt="Sparkles Cleaning Cambridge logo">
+        <span>Sparkles Cleaning Cambridge<small>Smiles Come Standard.</small></span>
+      </a>
+      <div class="sp-nav-links admin-nav">
+        <a class="sp-nav-link" href="/admin/dashboard">Command Centre</a>
+        <a class="sp-nav-link" href="/admin/bookings">Bookings</a>
+        <a class="sp-nav-link" href="/admin/cleaners">Cleaners</a>
+        <a class="sp-nav-link" href="/admin/ai-recruitment">AI Recruitment</a>
+        <a class="sp-nav-link active" href="/admin/autopilot">Autopilot</a>
+        <button class="row-button" id="adminLogout">Log out</button>
+      </div>
+    </nav>
+  </header>
+
+  <main class="autopilot-shell">
+    <section class="autopilot-hero sp-card">
+      <div>
+        <div class="sp-kicker">Sparkles Autopilot</div>
+        <h1>Control your automations from one calm centre.</h1>
+        <p>Enable, configure and dry-run each automation independently. Phase 1 is monitoring-only: no live emails, booking changes, payments or cleaner assignments are triggered from this page.</p>
+      </div>
+      <button class="sp-button" id="refreshAutopilot">Refresh</button>
+    </section>
+
+    <section class="attention-panel sp-card">
+      <div class="panel-title">
+        <div>
+          <h2>Needs attention</h2>
+          <p>Autopilot will only bother you when something needs owner input.</p>
+        </div>
+        <span class="sp-badge sp-badge-warning" id="attentionCount">0 open</span>
+      </div>
+      <div id="attentionList" class="mini-list"></div>
+    </section>
+
+    <section class="automation-grid" id="automationGrid">
+      <div class="sp-card loading-card"><span class="sp-spinner"></span>Loading Sparkles Autopilot…</div>
+    </section>
+
+    <section class="autopilot-lower">
+      <article class="sp-card autopilot-panel">
+        <div class="panel-title">
+          <div>
+            <h2>Recent activity</h2>
+            <p>Every manual dry run and settings change is recorded here.</p>
+          </div>
+        </div>
+        <div id="recentActivity" class="activity-list"></div>
+      </article>
+
+      <article class="sp-card autopilot-panel">
+        <div class="panel-title">
+          <div>
+            <h2>Run history</h2>
+            <p>Safe, independent dry-run checks for each automation.</p>
+          </div>
+        </div>
+        <div id="runHistory" class="activity-list"></div>
+      </article>
+    </section>
+  </main>
+
+  <dialog id="configDialog" class="config-dialog">
+    <form method="dialog" class="config-card">
+      <div class="panel-title">
+        <div>
+          <p class="sp-kicker" id="configKicker">Automation settings</p>
+          <h2 id="configTitle">Configure automation</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Close">×</button>
+      </div>
+      <div id="configFields" class="config-fields"></div>
+      <div class="config-actions">
+        <button class="sp-button sp-button-secondary" value="cancel">Cancel</button>
+        <button class="sp-button" id="saveConfig" value="default">Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="autopilot-toast" role="status" aria-live="polite"></div>
+
+  <script src="/autopilot.js"></script>
+</body>
+</html>

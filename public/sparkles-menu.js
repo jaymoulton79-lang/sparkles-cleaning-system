@@ -51,6 +51,7 @@
         ['🤝', 'Applicants', 'Cleaner recruitment pipeline', '/admin/cleaner-applicants'],
         ['✨', 'AI Recruitment', 'Recruitment assistant', '/admin/ai-recruitment'],
         ['🤖', 'Sparkles AI', 'Automation and office assistant', '/admin/ai-office'],
+        ['🛫', 'Autopilot', 'Enable and monitor automations', '/admin/autopilot'],
         ['⚙️', 'Automations', 'Workflow logs and retries', '/admin/automations'],
         ['🏢', 'Setup', 'Business settings', '/admin/setup'],
         ['↩', 'Log out', 'Sign out securely', '#logout'],

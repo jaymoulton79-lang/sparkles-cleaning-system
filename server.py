@@ -1409,7 +1409,8 @@ POSTGRES_SCHEMES = ("postgres://", "postgresql://")
 POSTGRES_ID_TABLES = {
     "bookings", "cleaners", "cleaner_applicants", "customers", "payments",
     "customer_reviews", "ai_conversations", "ai_messages", "automation_jobs",
-    "booking_timeline", "cleaner_applicant_timeline", "cleaner_offers", "email_log", "cleaner_payouts"
+    "booking_timeline", "cleaner_applicant_timeline", "cleaner_offers", "email_log", "cleaner_payouts",
+    "automation_runs", "automation_logs", "automation_alerts"
 }
 POSTGRES_RESERVED_TABLES = {"workflow_config", "app_config", "sessions", "password_reset_tokens", "archived_stripe_sessions"}
 
@@ -1825,6 +1826,136 @@ def runtime_setting(key, fallback=""):
         return fallback
 
 
+AUTOPILOT_AUTOMATIONS = [
+    {
+        "key": "cleaner_recruitment",
+        "name": "Cleaner Recruitment",
+        "summary": "Track applicant flow, recruitment links and owner follow-up prompts.",
+        "owner_trigger": "Only notify if applicants need review or recruitment goes quiet.",
+        "config": {
+            "target_applicants_per_week": "10",
+            "recruitment_area": "Cambridge and surrounding areas",
+            "channels": "Facebook, WhatsApp, Indeed, Google Business Profile",
+            "owner_alert_after_days_quiet": "3",
+        },
+    },
+    {
+        "key": "booking_communications",
+        "name": "Booking Communications",
+        "summary": "Monitor quote, deposit, assignment and final-balance communications.",
+        "owner_trigger": "Only notify if a booking communication fails or needs manual attention.",
+        "config": {
+            "deposit_follow_up_hours": "24",
+            "final_balance_follow_up_days": "2",
+            "owner_copy_enabled": "Yes",
+        },
+    },
+    {
+        "key": "customer_reminders",
+        "name": "Customer Reminders",
+        "summary": "Monitor upcoming bookings and reminder readiness.",
+        "owner_trigger": "Only notify if a reminder cannot be prepared safely.",
+        "config": {
+            "clean_reminder_hours_before": "24",
+            "review_request_after_paid": "Yes",
+            "friendly_tone": "Warm and professional",
+        },
+    },
+    {
+        "key": "owner_daily_briefing",
+        "name": "Owner Daily Briefing",
+        "summary": "Prepare a daily owner summary of bookings, payments and cleaner activity.",
+        "owner_trigger": "Only notify if there is something needing owner intervention.",
+        "config": {
+            "briefing_time": "08:00",
+            "include_revenue": "Yes",
+            "include_attention_items": "Yes",
+        },
+    },
+]
+
+
+def autopilot_catalog():
+    return {item["key"]: item for item in AUTOPILOT_AUTOMATIONS}
+
+
+def ensure_autopilot_defaults(conn):
+    now = utcnow().isoformat()
+    for item in AUTOPILOT_AUTOMATIONS:
+        existing = conn.execute("SELECT key FROM automation_settings WHERE key=?", (item["key"],)).fetchone()
+        if not existing:
+            conn.execute(
+                """INSERT INTO automation_settings(key,name,summary,enabled,config_json,owner_trigger,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    item["key"],
+                    item["name"],
+                    item["summary"],
+                    0,
+                    json.dumps(item["config"]),
+                    item["owner_trigger"],
+                    now,
+                    now,
+                ),
+            )
+
+
+def autopilot_config(config_json):
+    try:
+        value = json.loads(config_json or "{}")
+        return value if isinstance(value, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def autopilot_log(conn, key, event, detail="", level="Info", run_id=None):
+    conn.execute(
+        "INSERT INTO automation_logs(automation_key,run_id,event,detail,level,created_at) VALUES (?,?,?,?,?,?)",
+        (key, run_id, event, detail, level, utcnow().isoformat()),
+    )
+
+
+def autopilot_snapshot(conn, key):
+    if key == "cleaner_recruitment":
+        applicants = conn.execute("SELECT COUNT(*) count FROM cleaner_applicants").fetchone()["count"]
+        new_applicants = conn.execute("SELECT COUNT(*) count FROM cleaner_applicants WHERE status IN ('New','Review','Ready to contact')").fetchone()["count"]
+        active_cleaners = conn.execute("SELECT COUNT(*) count FROM cleaners WHERE active=1").fetchone()["count"]
+        return f"{applicants} applicants tracked, {new_applicants} awaiting review, {active_cleaners} active cleaners."
+    if key == "booking_communications":
+        deposit_due = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status='Deposit Due' AND archived_at IS NULL").fetchone()["count"]
+        balance_due = conn.execute("SELECT COUNT(*) count FROM bookings WHERE payment_status='Balance Due' AND archived_at IS NULL").fetchone()["count"]
+        failed_emails = table_count(conn, "email_log", "status IN ('Failed','Error')")
+        return f"{deposit_due} bookings awaiting deposit, {balance_due} balances due, {failed_emails} failed email records."
+    if key == "customer_reminders":
+        tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
+        tomorrow_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=? AND archived_at IS NULL", (tomorrow,)).fetchone()["count"]
+        return f"{tomorrow_bookings} booking(s) scheduled for tomorrow."
+    if key == "owner_daily_briefing":
+        today = datetime.now().date().isoformat()
+        today_bookings = conn.execute("SELECT COUNT(*) count FROM bookings WHERE preferred_date=? AND archived_at IS NULL", (today,)).fetchone()["count"]
+        open_attention = conn.execute("SELECT COUNT(*) count FROM automation_alerts WHERE resolved_at IS NULL").fetchone()["count"]
+        return f"{today_bookings} job(s) today and {open_attention} Autopilot attention item(s)."
+    return "Dry run completed."
+
+
+def autopilot_payload():
+    with connect() as conn:
+        ensure_autopilot_defaults(conn)
+        order = {item["key"]: index for index, item in enumerate(AUTOPILOT_AUTOMATIONS)}
+        settings = []
+        for row in conn.execute("SELECT * FROM automation_settings ORDER BY key").fetchall():
+            item = dict(row)
+            item["enabled"] = bool(item.get("enabled"))
+            item["config"] = autopilot_config(item.get("config_json"))
+            item.pop("config_json", None)
+            settings.append(item)
+        settings.sort(key=lambda item: order.get(item["key"], 999))
+        logs = [dict(row) for row in conn.execute("SELECT * FROM automation_logs ORDER BY id DESC LIMIT 80").fetchall()]
+        runs = [dict(row) for row in conn.execute("SELECT * FROM automation_runs ORDER BY id DESC LIMIT 20").fetchall()]
+        alerts = [dict(row) for row in conn.execute("SELECT * FROM automation_alerts WHERE resolved_at IS NULL ORDER BY id DESC LIMIT 20").fetchall()]
+    return {"automations": settings, "logs": logs, "runs": runs, "alerts": alerts}
+
+
 def initialise():
     UPLOADS.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
@@ -2060,6 +2191,44 @@ def initialise():
             message TEXT NOT NULL,
             created_at TEXT NOT NULL
         )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS automation_settings (
+            key TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 0,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            owner_trigger TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS automation_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            automation_key TEXT NOT NULL,
+            status TEXT NOT NULL,
+            triggered_by TEXT NOT NULL DEFAULT 'manual',
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            summary TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT ''
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS automation_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            automation_key TEXT NOT NULL,
+            run_id INTEGER,
+            event TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            level TEXT NOT NULL DEFAULT 'Info',
+            created_at TEXT NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS automation_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            automation_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            level TEXT NOT NULL DEFAULT 'Needs attention',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        )""")
         defaults = [
             ("COMPANY_NAME", "Sparkles Cleaning Cambridge", 0), ("COMPANY_EMAIL", "", 0),
             ("COMPANY_PHONE", "", 0), ("BUSINESS_ADDRESS", "", 0), ("PUBLIC_URL", PUBLIC_URL, 0),
@@ -2099,6 +2268,7 @@ def initialise():
                 ON CONFLICT(key) DO UPDATE SET value=excluded.value,is_secret=excluded.is_secret,updated_at=excluded.updated_at""", (hash_password(BOOTSTRAP_ADMIN_PASSWORD), 1, now))
             conn.execute("DELETE FROM sessions WHERE role='admin'")
             logger.info("Bootstrap admin email and password hash applied from environment")
+        ensure_autopilot_defaults(conn)
         automation.initialise(conn)
         existing = conn.execute("SELECT id,clean_type,bedrooms,bathrooms FROM bookings WHERE total_amount=0").fetchall()
         for booking in existing:
@@ -2268,6 +2438,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.owner_dashboard()
+        if path == "/api/admin/autopilot":
+            if not self.require_admin():
+                return
+            return self.send_json(autopilot_payload())
         if path == "/api/admin/launch-console":
             if not self.require_admin():
                 return
@@ -2510,6 +2684,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "automations.html")
+        if path in ("/admin/autopilot", "/admin/autopilot/"):
+            if not self.is_admin():
+                return self.redirect("/admin/login")
+            return self.send_file(PUBLIC / "autopilot.html")
         if path in ("/admin/ai-office", "/admin/ai-office/"):
             if not self.is_admin():
                 return self.redirect("/admin/login")
@@ -2530,7 +2708,7 @@ class Handler(BaseHTTPRequestHandler):
             if admin_configured() and not self.is_admin():
                 return self.redirect("/admin/login")
             return self.send_file(PUBLIC / "setup.html")
-        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/ai-recruitment.html", "/launch-console.html", "/fresh-launch-reset.html", "/setup.html", "/admin-diagnostics.html"}
+        protected_files = {"/owner-dashboard.html", "/admin.html", "/cleaners-admin.html", "/cleaner-applicants-admin.html", "/calendar.html", "/automations.html", "/autopilot.html", "/ai-office.html", "/ai-office-settings.html", "/receptionist-admin.html", "/ai-recruitment.html", "/launch-console.html", "/fresh-launch-reset.html", "/setup.html", "/admin-diagnostics.html"}
         if path in protected_files and not self.is_admin():
             return self.redirect("/admin/login")
         if path == "/cleaner-dashboard.html" and not self.is_cleaner():
@@ -2554,6 +2732,22 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.fresh_launch_reset()
+        if path.startswith("/api/admin/autopilot/") and path.endswith("/toggle"):
+            if not self.require_admin():
+                return
+            return self.autopilot_toggle(path)
+        if path.startswith("/api/admin/autopilot/") and path.endswith("/configure"):
+            if not self.require_admin():
+                return
+            return self.autopilot_configure(path)
+        if path.startswith("/api/admin/autopilot/") and path.endswith("/run-now"):
+            if not self.require_admin():
+                return
+            return self.autopilot_run_now(path)
+        if path.startswith("/api/admin/autopilot/alerts/") and path.endswith("/resolve"):
+            if not self.require_admin():
+                return
+            return self.autopilot_resolve_alert(path)
         if path == "/api/cleaner/login":
             return self.login_cleaner()
         if path == "/api/customer/register":
@@ -2756,6 +2950,95 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > 1024 * 1024:
             raise ValueError("Invalid request.")
         return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def autopilot_key_from_path(self, path):
+        parts = path.strip("/").split("/")
+        try:
+            key = parts[3]
+        except IndexError:
+            raise ValueError("Invalid automation.")
+        if key not in autopilot_catalog():
+            raise ValueError("Unknown automation.")
+        return key
+
+    def autopilot_toggle(self, path):
+        try:
+            key = self.autopilot_key_from_path(path)
+            data = self.read_json()
+            enabled = 1 if data.get("enabled") else 0
+            now = utcnow().isoformat()
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                conn.execute("UPDATE automation_settings SET enabled=?,updated_at=? WHERE key=?", (enabled, now, key))
+                autopilot_log(conn, key, "Automation enabled" if enabled else "Automation disabled", "Owner changed the Autopilot switch.")
+            return self.send_json(autopilot_payload())
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def autopilot_configure(self, path):
+        try:
+            key = self.autopilot_key_from_path(path)
+            data = self.read_json()
+            config = data.get("config", {})
+            if not isinstance(config, dict):
+                raise ValueError("Configuration must be a set of fields.")
+            clean_config = {str(k): str(v).strip() for k, v in config.items()}
+            now = utcnow().isoformat()
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                conn.execute("UPDATE automation_settings SET config_json=?,updated_at=? WHERE key=?", (json.dumps(clean_config), now, key))
+                autopilot_log(conn, key, "Configuration saved", "Owner updated the Autopilot configuration.")
+            return self.send_json(autopilot_payload())
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def autopilot_run_now(self, path):
+        try:
+            key = self.autopilot_key_from_path(path)
+            data = self.read_json()
+            dry_run = data.get("dry_run", True)
+            started = utcnow().isoformat()
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                cursor = conn.execute(
+                    "INSERT INTO automation_runs(automation_key,status,triggered_by,started_at,summary) VALUES (?,?,?,?,?)",
+                    (key, "Running", "manual", started, "Manual dry run started."),
+                )
+                run_id = cursor.lastrowid
+                summary = autopilot_snapshot(conn, key)
+                detail = "Dry run only. No emails were sent, no bookings changed, no payments touched and no cleaner assignments made."
+                if not dry_run:
+                    detail = "Live side effects are disabled in Phase 1, so this manual run was safely kept as a dry run."
+                autopilot_log(conn, key, "Manual dry run completed", f"{summary} {detail}", "Info", run_id)
+                conn.execute(
+                    "UPDATE automation_runs SET status='Completed',finished_at=?,summary=? WHERE id=?",
+                    (utcnow().isoformat(), f"{summary} {detail}", run_id),
+                )
+            return self.send_json(autopilot_payload())
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+        except Exception as error:
+            logger.exception("Autopilot dry run failed")
+            try:
+                key = self.autopilot_key_from_path(path)
+                with connect() as conn:
+                    conn.execute(
+                        "INSERT INTO automation_alerts(automation_key,title,detail,level,created_at) VALUES (?,?,?,?,?)",
+                        (key, "Autopilot dry run failed", str(error), "Needs attention", utcnow().isoformat()),
+                    )
+            except Exception:
+                pass
+            return self.send_json({"error": "Autopilot dry run failed. Check the Needs attention panel."}, 500)
+
+    def autopilot_resolve_alert(self, path):
+        try:
+            parts = path.strip("/").split("/")
+            alert_id = int(parts[4])
+            with connect() as conn:
+                conn.execute("UPDATE automation_alerts SET resolved_at=? WHERE id=?", (utcnow().isoformat(), alert_id))
+            return self.send_json(autopilot_payload())
+        except (ValueError, IndexError) as error:
+            return self.send_json({"error": str(error) or "Invalid alert."}, 400)
 
     def fresh_launch_reset(self):
         try:
