@@ -7,6 +7,14 @@ const esc = value => {
 let latestCopy = '';
 let latestShort = '';
 let latestPlan = '';
+const recruitmentChannels = [
+  { name: 'Facebook', source: 'facebook', icon: 'f', hint: 'Post in local jobs, mums, community and cleaning groups.' },
+  { name: 'WhatsApp', source: 'whatsapp', icon: '💬', hint: 'Send to trusted local contacts and community chats.' },
+  { name: 'Indeed', source: 'indeed', icon: 'in', hint: 'Use as the apply link in an Indeed job advert.' },
+  { name: 'Google Business Profile', source: 'google-business-profile', icon: 'G', hint: 'Add as an update/post on your business profile.' },
+  { name: 'Gumtree', source: 'gumtree', icon: 'G', hint: 'Use in a local cleaner opportunity advert.' },
+  { name: 'Referral', source: 'referral', icon: '↗', hint: 'Share with friends, family and existing cleaners.' }
+];
 
 async function copyText(text, button){
   await navigator.clipboard.writeText(text);
@@ -27,10 +35,50 @@ function renderStats(data){
     <div><span>Active cleaners</span><strong>${counts.active_cleaners || 0}</strong></div>
     <div><span>Needs review</span><strong>${counts.needs_review || 0}</strong></div>
   `;
+  document.querySelector('#recommendationBreakdown').innerHTML = `
+    <span>Excellent ${counts.excellent || 0}</span>
+    <span>Good ${counts.good || 0}</span>
+    <span>Review ${counts.review || 0}</span>
+    <span>Weak ${counts.weak || 0}</span>
+  `;
   const sources = Object.entries(data.sources || {});
   document.querySelector('#sourceBreakdown').innerHTML = sources.length
     ? sources.map(([source,count]) => `<div><span>${esc(source)}</span><strong>${count} applicant${count===1?'':'s'}</strong></div>`).join('')
     : '<div class="empty-mini">No applicant sources yet.</div>';
+}
+
+function applyLink(source){
+  return `${location.origin}/become-a-cleaner?source=${encodeURIComponent(source)}`;
+}
+
+function recruitmentMessage(channel){
+  const link = applyLink(channel.source);
+  return `Sparkles Cleaning Cambridge is looking for reliable cleaners for flexible local cleaning work.\n\nChoose your availability, local jobs, friendly support and competitive pay.\n\nApply here:\n${link}`;
+}
+
+function renderEngineLinks(){
+  const root = document.querySelector('#engineLinks');
+  if(!root) return;
+  root.innerHTML = recruitmentChannels.map(channel => {
+    const link = applyLink(channel.source);
+    const message = recruitmentMessage(channel);
+    const whatsapp = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const facebook = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`;
+    return `<article class="engine-card">
+      <div class="engine-icon">${esc(channel.icon)}</div>
+      <div>
+        <h3>${esc(channel.name)}</h3>
+        <p>${esc(channel.hint)}</p>
+        <input readonly value="${esc(link)}" aria-label="${esc(channel.name)} recruitment link">
+        <div class="campaign-actions">
+          <button class="secondary" onclick="copyText('${esc(link)}',this)">Copy link</button>
+          <button class="secondary" onclick="copyText(${JSON.stringify(message).replaceAll('"', '&quot;')},this)">Copy post</button>
+          ${channel.name === 'WhatsApp' ? `<a class="secondary" href="${whatsapp}" target="_blank" rel="noopener">Open WhatsApp</a>` : ''}
+          ${channel.name === 'Facebook' ? `<a class="secondary" href="${facebook}" target="_blank" rel="noopener">Open Facebook</a>` : ''}
+        </div>
+      </div>
+    </article>`;
+  }).join('');
 }
 
 async function sendFollowUp(applicantId, template, button){
@@ -178,4 +226,5 @@ document.querySelector('#campaignForm').addEventListener('submit', async event =
 });
 
 document.querySelector('#refreshRecruitment').addEventListener('click', loadRecruitment);
+renderEngineLinks();
 loadRecruitment();

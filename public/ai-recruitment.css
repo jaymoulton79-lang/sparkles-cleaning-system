@@ -4,6 +4,13 @@
 .ai-recruitment-hero p{max-width:760px;line-height:1.6;color:rgba(255,255,255,.82)}
 .ai-recruitment-hero .eyebrow{color:#b7d5ff}
 .ai-recruitment-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:20px;margin-bottom:20px}
+.recruitment-engine{margin-bottom:20px}
+.engine-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.engine-card{display:grid;grid-template-columns:54px 1fr;gap:14px;align-items:flex-start;border:1px solid #e5edf7;border-radius:20px;background:linear-gradient(180deg,#f8fbff,#fff);padding:16px}
+.engine-icon{width:54px;height:54px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,#1463ff,#66b2ff);color:#fff;font-weight:900;font-size:1.15rem;box-shadow:0 14px 28px rgba(20,99,255,.20)}
+.engine-card h3{margin:0 0 4px}
+.engine-card p{margin:0 0 10px}
+.engine-card input{width:100%;border:1px solid #d9e5f4;border-radius:13px;padding:10px 12px;background:#fff;color:#35506c;font:inherit}
 .autopilot-note{background:#eff6ff;border:1px solid #bfdbfe;color:#0f3f87;border-radius:20px;padding:16px 18px;margin:0 0 20px;box-shadow:0 12px 34px rgba(20,99,255,.08);line-height:1.55}
 .ai-panel{background:#fff;border:1px solid #e5edf7;border-radius:24px;padding:24px;box-shadow:0 16px 44px rgba(20,99,255,.10)}
 .ai-panel h2{margin:0 0 8px;color:#102033}
@@ -26,21 +33,23 @@
 .ai-stats div,.source-breakdown div{border:1px solid #e5edf7;border-radius:18px;background:#f8fbff;padding:15px}
 .ai-stats span,.source-breakdown span{display:block;color:#5f7188;font-size:.84rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
 .ai-stats strong{display:block;margin-top:4px;font-size:2rem;color:#102033}
+.mini-score-row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px}
+.mini-score-row span{border:1px solid #e5edf7;border-radius:999px;background:#fff;padding:7px 10px;color:#35506c;font-weight:900;font-size:.82rem}
 .source-breakdown{display:grid;gap:10px}
 .panel-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px}
 .shortlist-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 .shortlist-card{border:1px solid #e5edf7;border-radius:22px;padding:18px;background:#fff;display:grid;gap:12px}
-.shortlist-card.recommended{border-color:#86efac;background:linear-gradient(180deg,#f0fdf4,#fff)}
-.shortlist-card.maybe{border-color:#fde68a;background:linear-gradient(180deg,#fffbeb,#fff)}
-.shortlist-card.needs-review{border-color:#fecaca;background:linear-gradient(180deg,#fff7f7,#fff)}
+.shortlist-card.excellent,.shortlist-card.good,.shortlist-card.recommended{border-color:#86efac;background:linear-gradient(180deg,#f0fdf4,#fff)}
+.shortlist-card.review,.shortlist-card.maybe{border-color:#fde68a;background:linear-gradient(180deg,#fffbeb,#fff)}
+.shortlist-card.weak,.shortlist-card.needs-review{border-color:#fecaca;background:linear-gradient(180deg,#fff7f7,#fff)}
 .shortlist-card.already-added{border-color:#bfdbfe;background:linear-gradient(180deg,#eff6ff,#fff)}
 .shortlist-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
 .shortlist-head h3{margin:0;color:#102033}
 .score-ring{width:58px;height:58px;border-radius:999px;display:grid;place-items:center;background:#eaf2ff;color:#1463ff;font-weight:900;font-size:1.1rem;flex:0 0 auto}
 .recommendation{display:inline-flex;width:max-content;border-radius:999px;padding:7px 10px;font-weight:900;font-size:.8rem;background:#eaf2ff;color:#1463ff}
-.recommendation.recommended{background:#dcfce7;color:#166534}
-.recommendation.maybe{background:#fef3c7;color:#92400e}
-.recommendation.needs-review{background:#fee2e2;color:#991b1b}
+.recommendation.excellent,.recommendation.good,.recommendation.recommended{background:#dcfce7;color:#166534}
+.recommendation.review,.recommendation.maybe{background:#fef3c7;color:#92400e}
+.recommendation.weak,.recommendation.needs-review{background:#fee2e2;color:#991b1b}
 .recommendation.already-added{background:#dbeafe;color:#1d4ed8}
 .reason-list{margin:0;padding-left:18px;color:#35506c}
 .risk-list{margin:0;padding-left:18px;color:#991b1b}

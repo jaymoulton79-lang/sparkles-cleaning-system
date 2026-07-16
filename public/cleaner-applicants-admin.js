@@ -3,7 +3,7 @@ const sourceNames = ['Indeed','Facebook','WhatsApp','Referral','Website','Other'
 let applicants = [];
 
 function applyUrl(source){
-  return `${location.origin}/cleaner/apply?source=${encodeURIComponent(source.toLowerCase())}`;
+  return `${location.origin}/become-a-cleaner?source=${encodeURIComponent(source.toLowerCase())}`;
 }
 
 function renderLinks(){

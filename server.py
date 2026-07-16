@@ -3795,10 +3795,10 @@ class Handler(BaseHTTPRequestHandler):
 
         booking_link = public_url().rstrip("/") + "/"
         cleaner_links = {
-            "facebook": public_url().rstrip("/") + "/cleaner/apply?source=facebook",
-            "whatsapp": public_url().rstrip("/") + "/cleaner/apply?source=whatsapp",
-            "indeed": public_url().rstrip("/") + "/cleaner/apply?source=indeed",
-            "gumtree": public_url().rstrip("/") + "/cleaner/apply?source=gumtree",
+            "facebook": public_url().rstrip("/") + "/become-a-cleaner?source=facebook",
+            "whatsapp": public_url().rstrip("/") + "/become-a-cleaner?source=whatsapp",
+            "indeed": public_url().rstrip("/") + "/become-a-cleaner?source=indeed",
+            "gumtree": public_url().rstrip("/") + "/become-a-cleaner?source=gumtree",
         }
         cleaner_post = (
             "Self-employed cleaners wanted\n\n"
@@ -4449,9 +4449,12 @@ class Handler(BaseHTTPRequestHandler):
             scored.append(item)
         counts = {
             "total": len(scored),
-            "recommended": len([a for a in scored if a["recommendation"] == "Recommended"]),
-            "maybe": len([a for a in scored if a["recommendation"] == "Maybe"]),
-            "needs_review": len([a for a in scored if a["recommendation"] == "Needs review"]),
+            "excellent": len([a for a in scored if a["recommendation"] == "Excellent"]),
+            "good": len([a for a in scored if a["recommendation"] == "Good"]),
+            "recommended": len([a for a in scored if a["recommendation"] in {"Excellent", "Good"}]),
+            "review": len([a for a in scored if a["recommendation"] == "Review"]),
+            "weak": len([a for a in scored if a["recommendation"] == "Weak"]),
+            "needs_review": len([a for a in scored if a["recommendation"] in {"Review", "Weak"}]),
             "already_added": len([a for a in scored if a["recommendation"] == "Already added"]),
             "active_cleaners": int(active_cleaners["total"] if active_cleaners else 0),
         }
@@ -4469,7 +4472,7 @@ class Handler(BaseHTTPRequestHandler):
             rate = str(data.get("rate") or "competitive rates").strip()
             benefits = str(data.get("benefits") or "choose your availability, travel area and services").strip()
             source = channel.lower().replace(" ", "-")
-            apply_link = f"{public_url().rstrip('/')}/cleaner/apply?source={urllib.parse.quote(source)}"
+            apply_link = f"{public_url().rstrip('/')}/become-a-cleaner?source={urllib.parse.quote(source)}"
             title = "Self-employed Domestic Cleaner"
             if channel.lower() in {"facebook", "whatsapp", "nextdoor"}:
                 body = (
@@ -4508,7 +4511,7 @@ class Handler(BaseHTTPRequestHandler):
             channels = channels[:6] or ["Facebook", "Indeed", "WhatsApp", "Gumtree"]
             daily_target = max(1, round(target / 7))
             apply_links = {
-                channel: f"{public_url().rstrip('/')}/cleaner/apply?source={urllib.parse.quote(channel.lower().replace(' ', '-'))}"
+                channel: f"{public_url().rstrip('/')}/become-a-cleaner?source={urllib.parse.quote(channel.lower().replace(' ', '-'))}"
                 for channel in channels
             }
             checklist = [
@@ -4527,6 +4530,7 @@ class Handler(BaseHTTPRequestHandler):
                     "action": f"Publish cleaner recruitment advert for {area}",
                     "goal": f"Attract {daily_target}+ cleaner applicant{'s' if daily_target != 1 else ''}",
                     "apply_link": apply_links[channel],
+                    "share_text": f"Sparkles Cleaning Cambridge is hiring reliable cleaners in {area}. Flexible local cleaning work, friendly support and competitive pay. Apply here: {apply_links[channel]}",
                     "safe_note": "Use this link in your own posts or paid adverts. Do not scrape or message private profiles without consent."
                 })
             return self.send_json({
@@ -4552,7 +4556,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "Applicant not found."}, 404)
             name = display_customer_name(applicant["name"])
             apply_source = applicant["source"] or "recruitment campaign"
-            portal_link = f"{public_url().rstrip('/')}/cleaner/apply?source=follow-up"
+            portal_link = f"{public_url().rstrip('/')}/become-a-cleaner?source=follow-up"
             if template == "missing":
                 subject = "A quick question about your Sparkles cleaner application"
                 intro = f"Hi {name}, thanks for applying to work with Sparkles Cleaning Cambridge through {apply_source}. We'd love to review your application properly, but we need a few extra details first."
