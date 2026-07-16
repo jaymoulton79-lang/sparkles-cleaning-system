@@ -49,6 +49,7 @@ UPLOADS = DATA / "uploads"
 DB = DATA / "sparkles.db"
 MAX_BODY = 15 * 1024 * 1024
 ALLOWED_IMAGES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+ALLOWED_APPLICANT_UPLOADS = {**ALLOWED_IMAGES, "application/pdf": ".pdf"}
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
@@ -1180,6 +1181,72 @@ def safe_send_cleaner_on_way_email(booking_id):
         automation.timeline(booking_id, "On my way email failed", str(error), "Warning")
 
 
+def applicant_timeline(applicant_id, event, detail="", level="Info"):
+    try:
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO cleaner_applicant_timeline(applicant_id,event,detail,level,created_at) VALUES (?,?,?,?,?)",
+                (applicant_id, event, detail, level, utcnow().isoformat()),
+            )
+    except Exception as error:
+        logger.warning(json.dumps({"applicant_timeline": "failed", "applicant_id": applicant_id, "event": event, "error": str(error)}))
+
+
+def send_cleaner_applicant_confirmation(applicant_id):
+    with connect() as conn:
+        applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+    if not applicant:
+        return
+    name = display_customer_name(applicant["name"])
+    rows = [
+        ("Application reference", f"APP-{int(applicant['id']):04d}"),
+        ("Name", applicant["name"]),
+        ("Postcode", applicant["postcode"]),
+        ("Travel radius", f"{applicant['travel_radius']} miles"),
+        ("Status", applicant["status"]),
+    ]
+    intro = f"Hi {name}, thanks for applying to become a Sparkles Cleaner. We have received your application and will review your details shortly."
+    subject = "Your Sparkles cleaner application has been received"
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nSmiles Come Standard.\nSparkles Cleaning Cambridge"
+    html_body = sparkles_email_html("Cleaner application received", intro, rows)
+    try:
+        status = send_auth_email(applicant["email"], subject, body, html_body)
+        applicant_timeline(applicant_id, "Confirmation email sent", f"{subject} → {applicant['email']} ({status})")
+    except Exception as error:
+        applicant_timeline(applicant_id, "Confirmation email failed", str(error), "Warning")
+        raise
+
+
+def send_owner_applicant_alert(applicant_id):
+    recipient = owner_alert_recipient()
+    if not recipient:
+        applicant_timeline(applicant_id, "Owner notification skipped", "No owner email address configured", "Warning")
+        return
+    with connect() as conn:
+        applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+    if not applicant:
+        return
+    rows = [
+        ("Applicant", applicant["name"]),
+        ("Email", applicant["email"]),
+        ("Phone", applicant["phone"]),
+        ("Postcode", applicant["postcode"]),
+        ("Source", applicant["source"]),
+        ("Travel", applicant["travel_method"]),
+        ("Services", ", ".join(json.loads(applicant["services"] or "[]")) or "Not supplied"),
+    ]
+    intro = "A new cleaner has applied to join Sparkles Cleaning Cambridge. Review the applicant and approve them when ready."
+    subject = f"New cleaner application - {applicant['name']}"
+    body = f"{intro}\n\n{plain_rows(rows)}\n\nOpen applicants:\n{public_url()}/admin/cleaner-applicants"
+    html_body = sparkles_email_html("New cleaner application", intro, rows, {"label": "Review applicant", "url": f"{public_url()}/admin/cleaner-applicants"})
+    try:
+        status = send_auth_email(recipient, subject, body, html_body)
+        applicant_timeline(applicant_id, "Owner notified", f"{subject} → {recipient} ({status})")
+    except Exception as error:
+        applicant_timeline(applicant_id, "Owner notification failed", str(error), "Warning")
+        raise
+
+
 def suitable_cleaners(booking):
     weekday = datetime.fromisoformat(booking["preferred_date"]).strftime("%A")
     matches = []
@@ -1342,7 +1409,7 @@ POSTGRES_SCHEMES = ("postgres://", "postgresql://")
 POSTGRES_ID_TABLES = {
     "bookings", "cleaners", "cleaner_applicants", "customers", "payments",
     "customer_reviews", "ai_conversations", "ai_messages", "automation_jobs",
-    "booking_timeline", "cleaner_offers", "email_log", "cleaner_payouts"
+    "booking_timeline", "cleaner_applicant_timeline", "cleaner_offers", "email_log", "cleaner_payouts"
 }
 POSTGRES_RESERVED_TABLES = {"workflow_config", "app_config", "sessions", "password_reset_tokens", "archived_stripe_sessions"}
 
@@ -1627,6 +1694,7 @@ def perform_fresh_launch_reset():
         "booking_timeline",
         "cleaner_offers",
         "cleaner_applicants",
+        "cleaner_applicant_timeline",
         "customer_reviews",
         "email_log",
         "password_reset_tokens",
@@ -1901,11 +1969,24 @@ def initialise():
             "travel_method": "TEXT NOT NULL DEFAULT 'Unknown'",
             "driving_licence_status": "TEXT NOT NULL DEFAULT 'Not provided'",
             "has_own_vehicle": "INTEGER NOT NULL DEFAULT 0",
+            "right_to_work_status": "TEXT NOT NULL DEFAULT 'Not provided'",
+            "short_intro": "TEXT NOT NULL DEFAULT ''",
+            "id_uploads": "TEXT NOT NULL DEFAULT '[]'",
+            "proof_of_address_uploads": "TEXT NOT NULL DEFAULT '[]'",
+            "driving_licence_uploads": "TEXT NOT NULL DEFAULT '[]'",
         }
         applicant_columns = {row[1] for row in conn.execute("PRAGMA table_info(cleaner_applicants)")}
         for column, definition in applicant_extra_columns.items():
             if column not in applicant_columns:
                 conn.execute(f"ALTER TABLE cleaner_applicants ADD COLUMN {column} {definition}")
+        conn.execute("""CREATE TABLE IF NOT EXISTS cleaner_applicant_timeline (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            applicant_id INTEGER NOT NULL REFERENCES cleaner_applicants(id),
+            event TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            level TEXT NOT NULL DEFAULT 'Info',
+            created_at TEXT NOT NULL
+        )""")
         conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
             token_hash TEXT PRIMARY KEY,
             role TEXT NOT NULL,
@@ -2272,8 +2353,22 @@ class Handler(BaseHTTPRequestHandler):
                 item = dict(row)
                 item["availability"] = json.loads(item.get("availability") or "[]")
                 item["services"] = json.loads(item.get("services") or "[]")
+                item["id_uploads"] = json.loads(item.get("id_uploads") or "[]")
+                item["proof_of_address_uploads"] = json.loads(item.get("proof_of_address_uploads") or "[]")
+                item["driving_licence_uploads"] = json.loads(item.get("driving_licence_uploads") or "[]")
+                item.update(self.score_cleaner_applicant(item))
                 applicants.append(item)
             return self.send_json(applicants)
+        if path.startswith("/api/cleaner-applicants/") and path.endswith("/timeline"):
+            if not self.require_admin():
+                return
+            try:
+                applicant_id = int(path.split("/")[3])
+            except (ValueError, IndexError):
+                return self.send_json({"error": "Invalid applicant."}, 400)
+            with connect() as conn:
+                events = [dict(row) for row in conn.execute("SELECT * FROM cleaner_applicant_timeline WHERE applicant_id=? ORDER BY id DESC", (applicant_id,)).fetchall()]
+            return self.send_json(events)
         if path == "/api/ai-recruitment/summary":
             if not self.require_admin():
                 return
@@ -2350,7 +2445,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(PUBLIC / "admin-emergency-reset.html")
         if path in ("/cleaner/login", "/cleaner/login/"):
             return self.send_file(PUBLIC / "cleaner-login.html")
-        if path in ("/cleaner/apply", "/cleaner/apply/"):
+        if path in ("/cleaner/apply", "/cleaner/apply/", "/become-a-cleaner", "/become-a-cleaner/"):
             return self.send_file(PUBLIC / "cleaner-apply.html")
         if path in ("/customer", "/customer/", "/customer/login", "/customer/login/"):
             return self.send_file(PUBLIC / "customer.html")
@@ -3684,8 +3779,8 @@ class Handler(BaseHTTPRequestHandler):
             recent_applicants = scored[:5]
             applicant_counts["total"] = len(scored)
             applicant_counts["new"] = len([item for item in scored if str(item.get("status") or "New").lower() == "new"])
-            applicant_counts["recommended"] = len([item for item in scored if item.get("recommendation") == "Recommended"])
-            applicant_counts["needs_review"] = len([item for item in scored if item.get("recommendation") == "Needs review"])
+            applicant_counts["recommended"] = len([item for item in scored if item.get("recommendation") in {"Excellent", "Good"}])
+            applicant_counts["needs_review"] = len([item for item in scored if item.get("recommendation") in {"Review", "Weak"}])
         except Exception as error:
             logger.warning(json.dumps({"launch_console_applicants": "failed", "error": str(error)}))
 
@@ -4107,10 +4202,52 @@ class Handler(BaseHTTPRequestHandler):
 
     def create_cleaner_applicant(self):
         try:
-            data = self.read_json()
+            uploads = {"id_uploads": [], "proof_of_address_uploads": [], "driving_licence_uploads": []}
+            content_type = self.headers.get("Content-Type", "")
+            if "multipart/form-data" in content_type.lower():
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    return self.send_json({"error": "Application upload is empty or too large (15MB maximum)."}, 413)
+                body = self.rfile.read(length)
+                raw = (f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n").encode() + body
+                message = BytesParser(policy=default).parsebytes(raw)
+                data = {}
+                upload_fields = {
+                    "id_upload": "id_uploads",
+                    "proof_of_address_upload": "proof_of_address_uploads",
+                    "driving_licence_upload": "driving_licence_uploads",
+                }
+                for part in message.iter_parts():
+                    name = part.get_param("name", header="content-disposition")
+                    filename = part.get_filename()
+                    payload = part.get_payload(decode=True) or b""
+                    if filename and name in upload_fields:
+                        mime = part.get_content_type()
+                        if mime not in ALLOWED_APPLICANT_UPLOADS or len(payload) > 5 * 1024 * 1024:
+                            raise ValueError("Applicant uploads must be JPG, PNG, WebP or PDF and no larger than 5MB each.")
+                        saved = f"applicant-{uuid.uuid4().hex}{ALLOWED_APPLICANT_UPLOADS[mime]}"
+                        (UPLOADS / saved).write_bytes(payload)
+                        uploads[upload_fields[name]].append({"name": Path(filename).name, "url": f"/uploads/{saved}", "uploaded_at": utcnow().isoformat()})
+                    elif name:
+                        existing = data.get(name)
+                        value = payload.decode("utf-8").strip()
+                        if existing is None:
+                            data[name] = value
+                        elif isinstance(existing, list):
+                            existing.append(value)
+                        else:
+                            data[name] = [existing, value]
+            else:
+                data = self.read_json()
             required = ["name", "phone", "email", "postcode", "availability", "services"]
             if any(not data.get(key) for key in required):
                 raise ValueError("Please complete your name, phone, email, postcode, availability and services.")
+            if isinstance(data.get("availability"), str):
+                data["availability"] = [item.strip() for item in data["availability"].split(",") if item.strip()]
+            if isinstance(data.get("services"), str):
+                data["services"] = [item.strip() for item in data["services"].split(",") if item.strip()]
+            for key in ("has_own_vehicle", "identity_verified", "right_to_work_verified", "proof_of_address_verified"):
+                data[key] = str(data.get(key, "")).lower() in {"1", "true", "yes", "on"}
             radius = float(data.get("travel_radius") or 5)
             rate = float(data.get("hourly_rate") or 0)
             source = str(data.get("source") or "Website").strip()[:80] or "Website"
@@ -4120,8 +4257,9 @@ class Handler(BaseHTTPRequestHandler):
                 cursor = conn.execute("""
                     INSERT INTO cleaner_applicants
                     (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at,
-                     identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle,
+                     right_to_work_status,short_intro,id_uploads,proof_of_address_uploads,driving_licence_uploads)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     data["name"].strip(),
                     data["phone"].strip(),
@@ -4145,8 +4283,23 @@ class Handler(BaseHTTPRequestHandler):
                     verification["travel_method"],
                     verification["driving_licence_status"],
                     verification["has_own_vehicle"],
+                    str(data.get("right_to_work_status") or "Not provided").strip(),
+                    str(data.get("short_intro") or "").strip(),
+                    json.dumps(uploads["id_uploads"] or data.get("id_uploads") or []),
+                    json.dumps(uploads["proof_of_address_uploads"] or data.get("proof_of_address_uploads") or []),
+                    json.dumps(uploads["driving_licence_uploads"] or data.get("driving_licence_uploads") or []),
                 ))
-            return self.send_json({"ok": True, "id": cursor.lastrowid}, 201)
+                applicant_id = cursor.lastrowid
+            applicant_timeline(applicant_id, "Application submitted", f"{source} application received")
+            try:
+                send_cleaner_applicant_confirmation(applicant_id)
+            except Exception as email_error:
+                logger.warning(json.dumps({"cleaner_applicant_confirmation": "failed", "applicant_id": applicant_id, "error": str(email_error)}))
+            try:
+                send_owner_applicant_alert(applicant_id)
+            except Exception as owner_error:
+                logger.warning(json.dumps({"cleaner_applicant_owner_alert": "failed", "applicant_id": applicant_id, "error": str(owner_error)}))
+            return self.send_json({"ok": True, "id": applicant_id}, 201)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
 
@@ -4155,7 +4308,11 @@ class Handler(BaseHTTPRequestHandler):
         services = json.loads(applicant.get("services") or "[]") if isinstance(applicant.get("services"), str) else applicant.get("services") or []
         dbs = str(applicant.get("dbs_status") or "Unknown").lower()
         insurance = str(applicant.get("insurance_status") or "Unknown").lower()
+        right_to_work = str(applicant.get("right_to_work_status") or "").lower()
+        travel_method = str(applicant.get("travel_method") or "Unknown").lower()
+        licence = str(applicant.get("driving_licence_status") or "").lower()
         experience = str(applicant.get("experience") or "").strip()
+        intro = str(applicant.get("short_intro") or "").strip()
         radius = float(applicant.get("travel_radius") or 0)
         rate = float(applicant.get("hourly_rate") or 0)
         score = 0
@@ -4198,20 +4355,33 @@ class Handler(BaseHTTPRequestHandler):
         if "verified" in dbs:
             score += 15
             reasons.append("DBS verified")
-        elif "certificate" in dbs or "progress" in dbs:
+        elif "certificate" in dbs or "progress" in dbs or "applied" in dbs:
             score += 9
             reasons.append("DBS available or in progress")
         else:
             risks.append("DBS not verified")
 
-        if "verified" in insurance:
-            score += 15
-            reasons.append("Insurance verified")
-        elif "policy" in insurance or "progress" in insurance:
-            score += 9
-            reasons.append("Insurance available or in progress")
+        if "yes" in right_to_work or "verified" in right_to_work or applicant.get("right_to_work_verified"):
+            score += 12
+            reasons.append("Right to work declared")
         else:
-            risks.append("Insurance not verified")
+            risks.append("Right to work not confirmed")
+
+        if "owner/company" in travel_method:
+            score += 8
+            reasons.append("Can use owner/company transport")
+        elif "car" in travel_method or "self" in travel_method:
+            if "verified" in licence and applicant.get("has_own_vehicle"):
+                score += 10
+                reasons.append("Self-driving with licence and vehicle")
+            else:
+                score += 3
+                risks.append("Self-driving details need checking")
+        elif travel_method and travel_method != "unknown":
+            score += 5
+            reasons.append("Travel method supplied")
+        else:
+            risks.append("Travel method missing")
 
         if radius >= 10:
             score += 8
@@ -4233,15 +4403,21 @@ class Handler(BaseHTTPRequestHandler):
         else:
             risks.append("No experience notes")
 
+        if intro:
+            score += 5
+            reasons.append("Personal introduction supplied")
+
         score = max(0, min(100, int(score)))
         if applicant.get("approved_cleaner_id") or applicant.get("status") == "Added as Cleaner":
             recommendation = "Already added"
-        elif score >= 75 and not any("not verified" in risk.lower() for risk in risks):
-            recommendation = "Recommended"
-        elif score >= 55:
-            recommendation = "Maybe"
+        elif score >= 80:
+            recommendation = "Excellent"
+        elif score >= 62:
+            recommendation = "Good"
+        elif score >= 40:
+            recommendation = "Review"
         else:
-            recommendation = "Needs review"
+            recommendation = "Weak"
         return {
             "score": score,
             "recommendation": recommendation,
@@ -4537,7 +4713,9 @@ class Handler(BaseHTTPRequestHandler):
                     SET status='Added as Cleaner', approved_cleaner_id=?, updated_at=?
                     WHERE id=?
                 """, (cleaner_id, datetime.now(timezone.utc).isoformat(), applicant_id))
+            applicant_timeline(applicant_id, "Approved as cleaner", f"Cleaner account #{cleaner_id} created")
             invite = send_cleaner_invitation_email(cleaner_id)
+            applicant_timeline(applicant_id, "Cleaner invite sent", "Secure Cleaner Portal setup invitation sent")
             return self.send_json({"ok": True, "cleaner_id": cleaner_id, "invite": invite}, 201)
         except DB_INTEGRITY_ERROR_TYPES:
             return self.send_json({"error": "A cleaner account already exists for that email address."}, 409)

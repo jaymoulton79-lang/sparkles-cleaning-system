@@ -4,14 +4,23 @@
 .recruit-hero>div:first-child{padding:30px}
 .recruit-hero h1{font-size:clamp(2rem,5vw,3.8rem);line-height:1;margin:8px 0 12px;color:#102033}
 .recruit-hero p{color:#5f7188;line-height:1.6}
+.hero-sub{font-size:1.1rem;max-width:650px}
 .eyebrow{font-size:.78rem;text-transform:uppercase;letter-spacing:.12em;color:#1463ff;font-weight:800}
 .source-card{padding:24px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(135deg,#1463ff,#5ea3ff);color:#fff}
 .source-card span{text-transform:uppercase;letter-spacing:.1em;font-size:.72rem;opacity:.85}
 .source-card strong{font-size:1.6rem;margin-top:10px}
+.source-card p{color:rgba(255,255,255,.88);margin:12px 0 0}
+.benefit-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:22px}
+.benefit-grid span{background:#f8fbff;border:1px solid #e5edf7;border-radius:16px;padding:12px 13px;color:#102033;font-weight:800;box-shadow:0 10px 24px rgba(20,99,255,.06)}
 .recruit-form{padding:26px;display:grid;gap:18px}
+.form-section{display:grid;gap:14px}
+.form-section h2{margin:0;color:#102033;font-size:1.25rem}
+.form-hint{margin:0 0 12px;color:#5f7188;font-size:.92rem}
 .field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .recruit-form label,.applicant-card label{display:grid;gap:7px;color:#35506c;font-weight:700}
 .recruit-form input,.recruit-form textarea,.recruit-form select,.recruit-import textarea,.source-link input,.applicant-card textarea,.applicant-actions select,.modal input{width:100%;border:1px solid #d9e5f4;border-radius:14px;padding:12px 14px;font:inherit;background:#f8fbff;color:#102033}
+.consent-check{display:flex!important;align-items:flex-start;gap:10px;background:#f8fbff;border:1px solid #e5edf7;border-radius:16px;padding:14px!important}
+.consent-check input{width:auto;margin-top:4px}
 .recruit-form fieldset{border:1px solid #e5edf7;border-radius:18px;padding:16px}
 .recruit-form legend{font-weight:800;color:#102033;padding:0 8px}
 .check-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
@@ -31,6 +40,13 @@
 .applicant-head h2{margin:0;color:#102033}
 .applicant-head p{margin:5px 0 0;color:#5f7188}
 .applicant-head span{border-radius:999px;background:#eaf2ff;color:#1463ff;padding:7px 10px;font-weight:800;font-size:.8rem;white-space:nowrap}
+.recommendation{display:inline-flex;border-radius:999px;padding:7px 10px;font-size:.78rem;font-weight:900;background:#eef6ff;color:#1463ff}
+.recommendation.excellent{background:#e7f9ef;color:#087443}
+.recommendation.good{background:#ecfdf5;color:#0f766e}
+.recommendation.review{background:#fff7ed;color:#c2410c}
+.recommendation.weak{background:#fff1f2;color:#be123c}
+.doc-list{display:flex;flex-wrap:wrap;gap:8px}
+.doc-list a{background:#f1f6ff;border-radius:999px;padding:7px 10px;color:#1463ff;text-decoration:none;font-weight:800;font-size:.82rem}
 .applicant-meta{display:flex;flex-wrap:wrap;gap:8px}
 .applicant-meta span{background:#f1f6ff;border-radius:999px;padding:7px 10px;color:#35506c;font-weight:700;font-size:.85rem}
 .applicant-card p{margin:0;color:#35506c;line-height:1.5}
@@ -41,6 +57,7 @@
 
 @media (max-width:760px){
   .recruit-hero,.field-grid{grid-template-columns:1fr}
+  .benefit-grid{grid-template-columns:1fr}
   .check-grid{grid-template-columns:1fr}
   .recruit-page{padding:20px 14px 50px}
   .recruit-form,.recruit-hero>div:first-child,.source-card{padding:20px}

@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>Apply to Clean | Sparkles Cleaning Cambridge</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Become a Sparkles Cleaner | Sparkles Cleaning Cambridge</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/recruitment.css">
 </head>
@@ -11,33 +12,106 @@
   <div class="topbar"></div>
   <header>
     <nav class="nav">
-      <a class="brand" href="/"><span class="brand-mark">✦</span><span>Sparkles Cleaning Cambridge<small>Cleaner application</small></span></a>
-      <a class="nav-link" href="/">Sparkles Booking Centre</a>
+      <a class="brand" href="/">
+        <span class="brand-mark">✦</span>
+        <span>Sparkles Cleaning Cambridge<small>Smiles Come Standard.</small></span>
+      </a>
+      <a class="nav-link" href="/">Booking Centre</a>
     </nav>
   </header>
+
   <main class="recruit-page">
-    <section class="recruit-hero">
+    <section class="recruit-hero become-hero">
       <div>
-        <p class="eyebrow">Sparkles Cleaning Cambridge</p>
-        <h1>Apply to join our cleaner network</h1>
-        <p>Tell us where you work, what services you offer and when you are available. If it looks like a good fit, Sparkles Cleaning Cambridge will contact you.</p>
+        <p class="eyebrow">Sparkles Cleaner Recruitment</p>
+        <h1>Become a Sparkles Cleaner</h1>
+        <p class="hero-sub">Flexible work. Choose your own availability. Local cleaning jobs. Work with Sparkles Cleaning Cambridge.</p>
+        <div class="benefit-grid">
+          <span>Flexible hours</span>
+          <span>Weekly work opportunities</span>
+          <span>Local customers</span>
+          <span>Competitive pay</span>
+          <span>Friendly support</span>
+          <span>No franchise fees</span>
+        </div>
       </div>
       <div class="source-card">
         <span>Application source</span>
         <strong id="sourceLabel">Website</strong>
+        <p>Share this page safely on Facebook, WhatsApp, Indeed, Google Business Profile and local groups.</p>
       </div>
     </section>
-    <form id="applyForm" class="recruit-form">
+
+    <form id="applyForm" class="recruit-form" enctype="multipart/form-data">
       <input type="hidden" name="source" id="sourceInput" value="Website">
-      <div class="field-grid">
-        <label>Name<input name="name" required autocomplete="name"></label>
-        <label>Phone<input name="phone" required autocomplete="tel"></label>
-        <label>Email<input name="email" type="email" required autocomplete="email"></label>
-        <label>Postcode<input name="postcode" required autocomplete="postal-code"></label>
-        <label>Travel radius in miles<input name="travel_radius" type="number" min="1" step="1" value="5"></label>
-        <label>Hourly rate (£)<input name="hourly_rate" type="number" min="0" step="0.5" placeholder="e.g. 15"></label>
+
+      <div class="form-section">
+        <h2>Your details</h2>
+        <div class="field-grid">
+          <label>Full name<input name="name" required autocomplete="name"></label>
+          <label>Mobile number<input name="phone" required autocomplete="tel"></label>
+          <label>Email<input name="email" type="email" required autocomplete="email"></label>
+          <label>Home postcode<input name="postcode" required autocomplete="postal-code"></label>
+        </div>
       </div>
-      <label>Cleaning experience<textarea name="experience" rows="4" placeholder="Tell us about your cleaning experience, transport, and the areas you cover."></textarea></label>
+
+      <div class="form-section">
+        <h2>Travel and work preferences</h2>
+        <div class="field-grid">
+          <label>Travel radius in miles<input name="travel_radius" type="number" min="1" step="1" value="5" required></label>
+          <label>Hourly rate (£)<input name="hourly_rate" type="number" min="0" step="0.5" placeholder="e.g. 15" required></label>
+          <label>Travel method<select name="travel_method" required>
+            <option>Unknown</option>
+            <option>Car/self-driving</option>
+            <option>Owner/company transport</option>
+            <option>Public transport</option>
+            <option>Bicycle</option>
+            <option>Walk/local only</option>
+          </select></label>
+          <label>Own vehicle<select name="has_own_vehicle_select" id="ownVehicle">
+            <option value="0">No</option>
+            <option value="1">Yes</option>
+          </select></label>
+          <label>Driving licence status<select name="driving_licence_status">
+            <option>Not provided</option>
+            <option>Uploaded</option>
+            <option>Verified</option>
+            <option>Not held</option>
+          </select></label>
+          <label>Right to work in the UK<select name="right_to_work_status" id="rightToWork" required>
+            <option value="">Please choose</option>
+            <option>Yes</option>
+            <option>Can provide evidence</option>
+            <option>Not sure</option>
+          </select></label>
+          <label>DBS status<select name="dbs_status">
+            <option>Unknown</option>
+            <option>Applied</option>
+            <option>In progress</option>
+            <option>Certificate available</option>
+            <option>Verified</option>
+            <option>Not available</option>
+          </select></label>
+          <label>Cleaning experience<select name="experience_level">
+            <option>Some home cleaning experience</option>
+            <option>Professional cleaning experience</option>
+            <option>End of tenancy experience</option>
+            <option>New to paid cleaning</option>
+          </select></label>
+        </div>
+      </div>
+
+      <fieldset>
+        <legend>Services offered</legend>
+        <div class="check-grid" data-name="services">
+          <label><input type="checkbox" value="Regular clean"> Regular clean</label>
+          <label><input type="checkbox" value="Deep clean"> Deep clean</label>
+          <label><input type="checkbox" value="End of tenancy"> End of tenancy</label>
+          <label><input type="checkbox" value="Office clean"> Office clean</label>
+          <label><input type="checkbox" value="Airbnb turnover"> Airbnb turnover</label>
+        </div>
+      </fieldset>
+
       <fieldset>
         <legend>Availability</legend>
         <div class="check-grid" data-name="availability">
@@ -50,36 +124,32 @@
           <label><input type="checkbox" value="Sunday"> Sunday</label>
         </div>
       </fieldset>
-      <fieldset>
-        <legend>Services offered</legend>
-        <div class="check-grid" data-name="services">
-          <label><input type="checkbox" value="Regular clean"> Regular clean</label>
-          <label><input type="checkbox" value="Deep clean"> Deep clean</label>
-          <label><input type="checkbox" value="End of tenancy"> End of tenancy</label>
-          <label><input type="checkbox" value="Office clean"> Office clean</label>
-          <label><input type="checkbox" value="Airbnb turnover"> Airbnb turnover</label>
-        </div>
-      </fieldset>
-      <div class="field-grid">
-        <label>DBS status<select name="dbs_status"><option>Unknown</option><option>Applied</option><option>Verified</option><option>Not available</option></select></label>
-        <label>Insurance status<select name="insurance_status"><option>Unknown</option><option>Insured</option><option>Not insured</option><option>In progress</option></select></label>
-        <label>How do you travel to jobs?<select name="travel_method"><option>Unknown</option><option>Car/self-driving</option><option>Owner/company transport</option><option>Public transport</option><option>Bicycle</option><option>Walk/local only</option></select></label>
-        <label>Driving licence status<select name="driving_licence_status"><option>Not provided</option><option>Uploaded</option><option>Verified</option><option>Not held</option></select></label>
+
+      <div class="form-section">
+        <h2>Tell us about you</h2>
+        <label>Short introduction<textarea name="short_intro" rows="3" placeholder="A short friendly intro for Sparkles to read."></textarea></label>
+        <label>Cleaning experience<textarea name="experience" rows="4" placeholder="Tell us about your cleaning experience, reliability, areas you cover and any specialist cleans you have done."></textarea></label>
       </div>
+
       <fieldset>
-        <legend>Travel and identity</legend>
-        <div class="check-grid">
-          <label><input type="checkbox" name="has_own_vehicle" value="1"> I have access to my own vehicle</label>
-          <label><input type="checkbox" name="identity_verified" value="1"> I can provide photo ID</label>
-          <label><input type="checkbox" name="right_to_work_verified" value="1"> I can prove my right to work</label>
-          <label><input type="checkbox" name="proof_of_address_verified" value="1"> I can provide proof of address</label>
+        <legend>Optional uploads</legend>
+        <p class="form-hint">Optional for now. JPG, PNG, WebP or PDF. Maximum 5MB each.</p>
+        <div class="field-grid">
+          <label>Upload ID<input name="id_upload" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
+          <label>Upload proof of address<input name="proof_of_address_upload" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
+          <label>Upload driving licence<input name="driving_licence_upload" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
         </div>
       </fieldset>
-      <label>Extra notes<textarea name="notes" rows="3" placeholder="Anything else Sparkles Cleaning Cambridge should know?"></textarea></label>
+
+      <input type="hidden" name="has_own_vehicle" id="hasOwnVehicle" value="0">
+      <input type="hidden" name="right_to_work_verified" id="rightToWorkVerified" value="0">
+      <label class="consent-check"><input type="checkbox" required> I confirm the details above are accurate and Sparkles Cleaning Cambridge may contact me about cleaner opportunities.</label>
+
       <button class="primary" type="submit">Submit application</button>
       <p id="applyMessage" class="form-message"></p>
     </form>
   </main>
+
   <script src="/cleaner-apply.js"></script>
 </body>
 </html>
