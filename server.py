@@ -4403,9 +4403,9 @@ class Handler(BaseHTTPRequestHandler):
         actions = [
             {
                 "title": "Recruit cleaners",
-                "detail": "Generate and post your cleaner advert, then review applicants.",
+                "detail": "Copy your cleaner advert/link into safe recruitment channels, then review applicants.",
                 "href": "/admin/ai-recruitment",
-                "button": "Open AI Recruitment",
+                "button": "Open Cleaner Recruitment",
                 "priority": "Supply"
             },
             {
@@ -5111,7 +5111,7 @@ class Handler(BaseHTTPRequestHandler):
             actions.append({
                 "priority": "Medium",
                 "title": "Start sharing tracked links",
-                "detail": "No recruitment link clicks have been recorded yet. Share the Facebook or WhatsApp link first.",
+                "detail": "No recruitment link clicks have been recorded yet. Copy and post the Facebook or WhatsApp link first.",
                 "href": "/admin/ai-recruitment",
             })
         if new_items and not recommended:
@@ -5189,7 +5189,7 @@ class Handler(BaseHTTPRequestHandler):
             checklist = [
                 "Post the generated advert in 2-3 local cleaning/community groups.",
                 "Add the tracked application link to every post.",
-                "Check new applicants daily in the AI Recruitment shortlist.",
+                "Check new applicants daily in the Cleaner Recruitment shortlist.",
                 "Send follow-up emails to promising applicants within 24 hours.",
                 "Approve only applicants with clear contact details, availability and suitable checks.",
                 "Keep rejected or incomplete applicants in Needs review until they provide missing details."
@@ -5215,7 +5215,7 @@ class Handler(BaseHTTPRequestHandler):
                 "message": "Autopilot plan generated. Share the tracked links through your own adverts, posts and referrals."
             })
         except (ValueError, TypeError, json.JSONDecodeError) as error:
-            return self.send_json({"error": str(error) or "Could not generate autopilot plan."}, 400)
+            return self.send_json({"error": str(error) or "Could not generate weekly posting plan."}, 400)
 
     def ai_recruitment_follow_up(self, path):
         try:
@@ -5254,7 +5254,7 @@ class Handler(BaseHTTPRequestHandler):
             message.add_alternative(html_body, subtype="html")
             deliver_email_message(message)
             now = datetime.now(timezone.utc).isoformat()
-            note = f"{applicant['notes'] or ''}\n[{now}] AI Recruitment follow-up sent: {template}".strip()
+            note = f"{applicant['notes'] or ''}\n[{now}] Cleaner Recruitment follow-up sent: {template}".strip()
             with connect() as conn:
                 conn.execute("""
                     UPDATE cleaner_applicants

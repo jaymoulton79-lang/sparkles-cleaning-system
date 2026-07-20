@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>AI Recruitment Autopilot | Sparkles Cleaning Cambridge</title>
+  <title>Cleaner Recruitment | Sparkles Cleaning Cambridge</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/recruitment.css">
   <link rel="stylesheet" href="/ai-recruitment.css">
@@ -18,7 +18,7 @@
         <a href="/admin/launch">Launch Console</a>
         <a href="/admin/bookings">Bookings</a>
         <a href="/admin/cleaner-applicants">Applicants</a>
-        <a class="active" href="/admin/ai-recruitment">AI Recruitment</a>
+        <a class="active" href="/admin/ai-recruitment">Cleaner Recruitment</a>
         <a href="/admin/cleaners">Cleaners</a>
       </div>
     </nav>
@@ -27,22 +27,49 @@
   <main class="ai-recruitment-page">
     <section class="ai-recruitment-hero">
       <div>
-        <p class="eyebrow">Sparkles AI Recruitment Autopilot</p>
-        <h1>Build your cleaner pool without the overwhelm.</h1>
-        <p>Generate cleaner recruitment campaigns, track every applicant source, follow up automatically, score applicants and approve the best cleaners into your database.</p>
+        <p class="eyebrow">Cleaner Recruitment</p>
+        <h1>Get cleaners applying without making the process messy.</h1>
+        <p>This page gives you the links, advert copy, tracking and applicant shortlist. You still choose where to post — Sparkles handles the pipeline once cleaners apply.</p>
       </div>
       <a class="primary-small" href="/admin/cleaner-applicants">Review applicants</a>
     </section>
 
     <section class="autopilot-note">
-      <strong>Safe autopilot:</strong> this does not scrape private Facebook, Indeed or WhatsApp profiles. It creates tracked adverts and application links so cleaners apply properly and consent to joining your database.
+      <strong>Plain English:</strong> Sparkles cannot safely post into Facebook groups, WhatsApp chats or Indeed for you without your approval. What it does is give you tracked links and ready-to-copy adverts, then automatically captures, scores and organises applicants after they apply.
+    </section>
+
+    <section class="ai-panel next-step-panel">
+      <div>
+        <p class="eyebrow">What to do now</p>
+        <h2>Share the cleaner application link in 3 places today.</h2>
+        <p>Start with Facebook, WhatsApp and Indeed. Every link below is tracked, so Sparkles can show which channel actually brings cleaners in.</p>
+      </div>
+      <div class="next-step-actions">
+        <a class="primary-small" href="#shareLinks">Show share links</a>
+        <a class="secondary" href="/become-a-cleaner?source=admin-preview" target="_blank">Preview application page</a>
+      </div>
+    </section>
+
+    <section class="automation-explainer">
+      <article>
+        <strong>What you do</strong>
+        <p>Post the advert/link in Facebook, WhatsApp, Indeed or local groups.</p>
+      </article>
+      <article>
+        <strong>What Sparkles does</strong>
+        <p>Tracks clicks, saves applications, scores applicants and tells you who needs review.</p>
+      </article>
+      <article>
+        <strong>What still needs Luke</strong>
+        <p>Approving cleaners, checking documents and deciding who can work with Sparkles.</p>
+      </article>
     </section>
 
     <section class="ai-panel phase-two-panel">
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Cleaner Recruitment Autopilot Phase 2</p>
-          <h2>Track which channels bring cleaners in.</h2>
+          <p class="eyebrow">Recruitment tracking</p>
+          <h2>See which posts are bringing cleaners in.</h2>
           <p>Share tracked links, monitor clicks and applicants, then review only the people Sparkles flags as worth your attention.</p>
         </div>
         <button class="secondary" id="refreshAutopilotStatus">Refresh status</button>
@@ -58,12 +85,12 @@
       <div class="tracked-source-grid" id="trackedSources"></div>
     </section>
 
-    <section class="ai-panel recruitment-engine">
+    <section class="ai-panel recruitment-engine" id="shareLinks">
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Recruitment engine</p>
-          <h2>Share one tracked link. Let Sparkles handle the pipeline.</h2>
-          <p>Use these ready-made channels to get cleaners into the system quickly. Applicants are tagged by source, scored automatically, and routed into the approval flow.</p>
+          <p class="eyebrow">Share links</p>
+          <h2>Copy, post, then let Sparkles organise applicants.</h2>
+          <p>These buttons do not secretly post for you. They give you the exact link or advert text to paste wherever you choose.</p>
         </div>
         <a class="primary-small" href="/become-a-cleaner?source=admin-engine" target="_blank">Open application page</a>
       </div>
@@ -72,8 +99,8 @@
 
     <section class="ai-recruitment-grid">
       <article class="ai-panel">
-        <h2>Autopilot campaign plan</h2>
-        <p>Tell Sparkles where you want cleaners and how many you want to attract. It will create a safe recruitment plan and tracking links.</p>
+        <h2>Simple weekly posting plan</h2>
+        <p>Tell Sparkles where you want cleaners and how many you want to attract. It will create a safe plan you can follow without thinking from scratch.</p>
         <form id="autopilotForm" class="campaign-form">
           <label>Recruitment area
             <input name="area" value="Cambridge and surrounding areas">
@@ -84,13 +111,13 @@
           <label>Channels
             <input name="channels" value="Facebook, Indeed, WhatsApp, Gumtree">
           </label>
-          <button class="secondary" type="submit">Create autopilot plan</button>
+          <button class="secondary" type="submit">Create weekly plan</button>
         </form>
-        <div id="autopilotOutput" class="campaign-output empty-mini">Your weekly recruitment plan will appear here.</div>
+        <div id="autopilotOutput" class="campaign-output empty-mini">Your weekly posting plan will appear here.</div>
       </article>
 
       <article class="ai-panel">
-        <h2>Campaign generator</h2>
+        <h2>Advert copy generator</h2>
         <p>Create safe recruitment copy for Facebook, WhatsApp, Indeed, Gumtree or referrals.</p>
         <form id="campaignForm" class="campaign-form">
           <label>Channel
@@ -112,7 +139,7 @@
           <label>Benefits
             <textarea name="benefits" rows="3">choose your availability, travel radius and preferred cleaning services</textarea>
           </label>
-          <button class="secondary" type="submit">Generate advert</button>
+          <button class="secondary" type="submit">Write advert copy</button>
         </form>
         <div id="campaignOutput" class="campaign-output empty-mini">Generated adverts will appear here.</div>
       </article>
@@ -149,8 +176,8 @@
     <section class="ai-panel">
       <div class="panel-head">
         <div>
-          <h2>AI applicant shortlist</h2>
-          <p>Scores are guidance only. Always check DBS, insurance, references and fit before approving.</p>
+          <h2>Sparkles AI applicant shortlist</h2>
+          <p>AI helps prioritise applicants. Luke still approves cleaners manually after checking documents, fit and reliability.</p>
         </div>
         <button class="secondary" id="refreshRecruitment">Refresh</button>
       </div>

@@ -8,10 +8,10 @@ let latestCopy = '';
 let latestShort = '';
 let latestPlan = '';
 const recruitmentChannels = [
-  { name: 'Facebook', source: 'facebook', icon: 'f', hint: 'Post in local jobs, mums, community and cleaning groups.' },
+  { name: 'Facebook', source: 'facebook', icon: 'f', hint: 'Copy the advert and post it on your Sparkles page or approved local groups.' },
   { name: 'WhatsApp', source: 'whatsapp', icon: '💬', hint: 'Send to trusted local contacts and community chats.' },
-  { name: 'Indeed', source: 'indeed', icon: 'in', hint: 'Use as the apply link in an Indeed job advert.' },
-  { name: 'Google Business Profile', source: 'google-business-profile', icon: 'G', hint: 'Add as an update/post on your business profile.' },
+  { name: 'Indeed', source: 'indeed', icon: 'in', hint: 'Paste this as the apply link when you create an Indeed job advert.' },
+  { name: 'Google Business Profile', source: 'google-business-profile', icon: 'G', hint: 'Add the link to a Google Business Profile update.' },
   { name: 'Gumtree', source: 'gumtree', icon: 'G', hint: 'Use in a local cleaner opportunity advert.' },
   { name: 'Referral', source: 'referral', icon: '↗', hint: 'Share with friends, family and existing cleaners.' }
 ];
@@ -208,7 +208,7 @@ async function loadAutopilotStatus(){
 document.querySelector('#autopilotForm').addEventListener('submit', async event => {
   event.preventDefault();
   const output = document.querySelector('#autopilotOutput');
-  output.textContent = 'Creating autopilot plan...';
+  output.textContent = 'Creating weekly posting plan...';
   const payload = Object.fromEntries(new FormData(event.target));
   const response = await fetch('/api/ai-recruitment/autopilot-plan', {
     method:'POST',
@@ -217,11 +217,11 @@ document.querySelector('#autopilotForm').addEventListener('submit', async event 
   });
   const data = await response.json();
   if(!response.ok){
-    output.textContent = data.error || 'Could not create autopilot plan.';
+    output.textContent = data.error || 'Could not create weekly posting plan.';
     return;
   }
   latestPlan = [
-    `Recruitment area: ${data.area}`,
+    `Cleaner recruitment area: ${data.area}`,
     `Target applicants: ${data.target}`,
     '',
     ...data.weekly_plan.map(item => `Day ${item.day}: ${item.channel}\n${item.action}\nGoal: ${item.goal}\nApply link: ${item.apply_link}`),
@@ -230,7 +230,7 @@ document.querySelector('#autopilotForm').addEventListener('submit', async event 
     ...data.checklist.map(item => `- ${item}`)
   ].join('\n\n');
   output.innerHTML = `
-    <h3>Weekly cleaner recruitment plan</h3>
+    <h3>Weekly cleaner posting plan</h3>
     <div class="plan-list">
       ${data.weekly_plan.map(item => `<div>
         <strong>Day ${item.day}: ${esc(item.channel)}</strong>

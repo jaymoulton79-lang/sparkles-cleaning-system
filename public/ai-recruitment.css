@@ -12,6 +12,13 @@
 .engine-card p{margin:0 0 10px}
 .engine-card input{width:100%;border:1px solid #d9e5f4;border-radius:13px;padding:10px 12px;background:#fff;color:#35506c;font:inherit}
 .autopilot-note{background:#eff6ff;border:1px solid #bfdbfe;color:#0f3f87;border-radius:20px;padding:16px 18px;margin:0 0 20px;box-shadow:0 12px 34px rgba(20,99,255,.08);line-height:1.55}
+.next-step-panel{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:20px;background:linear-gradient(135deg,#fff,#fff8fb)}
+.next-step-panel h2{font-size:clamp(1.6rem,3vw,2.35rem);letter-spacing:-.04em}
+.next-step-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.automation-explainer{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:0 0 20px}
+.automation-explainer article{border:1px solid #e5edf7;border-radius:22px;padding:18px;background:#fff;box-shadow:0 14px 38px rgba(20,99,255,.08)}
+.automation-explainer strong{display:block;color:#102033;font-size:1rem;margin-bottom:6px}
+.automation-explainer p{margin:0;color:#5f7188;line-height:1.5}
 .phase-two-panel{margin-bottom:20px;background:linear-gradient(180deg,#fff,#fff8ef)}
 .phase-two-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
 .phase-two-stats div{border:1px solid #e5edf7;border-radius:18px;background:#f8fbff;padding:15px}
@@ -70,4 +77,4 @@
 .risk-list{margin:0;padding-left:18px;color:#991b1b}
 .shortlist-actions{display:flex;gap:10px;flex-wrap:wrap}
 .shortlist-actions button[disabled]{opacity:.55;cursor:not-allowed}
-@media(max-width:860px){.ai-recruitment-page{padding:28px 14px 56px}.ai-recruitment-grid,.ai-stats,.phase-two-stats{grid-template-columns:1fr}.ai-recruitment-hero,.panel-head{display:grid}.shortlist-actions>*,.tracked-source-card .campaign-actions>*{width:100%;text-align:center}}
+@media(max-width:860px){.ai-recruitment-page{padding:28px 14px 56px}.ai-recruitment-grid,.ai-stats,.phase-two-stats,.automation-explainer{grid-template-columns:1fr}.ai-recruitment-hero,.panel-head,.next-step-panel{display:grid}.next-step-actions{justify-content:stretch}.next-step-actions>*{width:100%;text-align:center}.shortlist-actions>*,.tracked-source-card .campaign-actions>*{width:100%;text-align:center}}
