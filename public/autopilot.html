@@ -93,6 +93,27 @@
     </form>
   </dialog>
 
+  <dialog id="facebookDialog" class="config-dialog facebook-dialog">
+    <form method="dialog" class="config-card">
+      <div class="panel-title">
+        <div>
+          <p class="sp-kicker">Cleaner Recruitment Autopilot</p>
+          <h2>Facebook Page recruitment post</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Close">×</button>
+      </div>
+      <div id="facebookDraftStatus" class="facebook-draft-status"></div>
+      <pre id="facebookDraftMessage" class="facebook-draft-message"></pre>
+      <a id="facebookDraftLink" class="facebook-draft-link" href="#" target="_blank" rel="noopener">Open recruitment link</a>
+      <p class="facebook-safety-note">Approval applies only to the exact wording above. Editing the recruitment area creates a new draft that must be approved again.</p>
+      <div class="config-actions facebook-dialog-actions">
+        <button class="sp-button sp-button-secondary" value="cancel">Close</button>
+        <button class="sp-button sp-button-secondary" type="button" data-action="facebook-approve">Approve exact draft</button>
+        <button class="sp-button" type="button" data-action="facebook-publish" id="facebookPublishButton">Run safe dry test</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" class="autopilot-toast" role="status" aria-live="polite"></div>
 
   <script src="/autopilot.js"></script>

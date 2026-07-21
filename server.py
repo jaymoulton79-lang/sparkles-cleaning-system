@@ -53,6 +53,9 @@ ALLOWED_APPLICANT_UPLOADS = {**ALLOWED_IMAGES, "application/pdf": ".pdf"}
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8000").rstrip("/")
+META_PAGE_ID = os.environ.get("META_PAGE_ID", "").strip()
+META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "").strip()
+META_GRAPH_API_VERSION = os.environ.get("META_GRAPH_API_VERSION", "v25.0").strip() or "v25.0"
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("SMTP_USER", "")
@@ -1856,6 +1859,9 @@ AUTOPILOT_AUTOMATIONS = [
             "recruitment_area": "Cambridge and surrounding areas",
             "channels": "Facebook, WhatsApp, Indeed, Google Business Profile",
             "owner_alert_after_days_quiet": "3",
+            "facebook_page_posting": "Disabled",
+            "facebook_post_mode": "Dry run",
+            "facebook_post_frequency": "Manual approval only",
         },
     },
     {
@@ -2115,6 +2121,142 @@ def recruitment_share_text(source="facebook", area="Cambridge and surrounding ar
     )
 
 
+def meta_page_config():
+    """Read Meta credentials from the process environment only.
+
+    The Page token must never be saved in app_config or returned to a browser.
+    """
+    return {
+        "page_id": META_PAGE_ID,
+        "access_token": META_PAGE_ACCESS_TOKEN,
+        "graph_api_version": META_GRAPH_API_VERSION,
+    }
+
+
+def facebook_recruitment_draft(config):
+    area = str(config.get("recruitment_area") or "Cambridge and surrounding areas").strip()
+    message = recruitment_share_text("facebook", area)
+    link = recruitment_link("facebook")
+    draft_hash = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    return {"message": message, "link": link, "hash": draft_hash}
+
+
+def facebook_recruitment_state(config):
+    meta = meta_page_config()
+    draft = facebook_recruitment_draft(config)
+    approved = hmac.compare_digest(
+        str(config.get("_facebook_approved_draft_hash") or ""),
+        draft["hash"],
+    )
+    published = hmac.compare_digest(
+        str(config.get("_facebook_last_published_hash") or ""),
+        draft["hash"],
+    )
+    posting_enabled = str(config.get("facebook_page_posting") or "Disabled").lower() == "enabled"
+    mode = str(config.get("facebook_post_mode") or "Dry run")
+    return {
+        "configured": bool(meta["page_id"] and meta["access_token"]),
+        "page_id_configured": bool(meta["page_id"]),
+        "token_configured": bool(meta["access_token"]),
+        "page_id": meta["page_id"],
+        "graph_api_version": meta["graph_api_version"],
+        "posting_enabled": posting_enabled,
+        "mode": mode,
+        "frequency": str(config.get("facebook_post_frequency") or "Manual approval only"),
+        "draft": draft,
+        "approved": approved,
+        "approved_at": config.get("_facebook_approved_at", ""),
+        "published": published,
+        "last_published_at": config.get("_facebook_last_published_at", ""),
+        "last_post_id": config.get("_facebook_last_post_id", ""),
+        "publish_state": config.get("_facebook_publish_state", "Draft"),
+        "can_publish": bool(posting_enabled and approved and not published),
+    }
+
+
+def safe_meta_error(status, body, access_token=""):
+    message = "Meta rejected the request."
+    error_type = ""
+    code = ""
+    try:
+        payload = json.loads(body or "{}")
+        detail = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if isinstance(detail, dict):
+            message = str(detail.get("message") or message)
+            error_type = str(detail.get("type") or "")
+            code = str(detail.get("code") or "")
+    except (TypeError, json.JSONDecodeError):
+        if body:
+            message = str(body)
+    if access_token:
+        message = message.replace(access_token, "[redacted]")
+    return {
+        "status": int(status or 0),
+        "message": message[:500],
+        "type": error_type[:120],
+        "code": code[:40],
+    }
+
+
+def facebook_graph_request(method, resource, fields=None):
+    config = meta_page_config()
+    if not config["page_id"] or not config["access_token"]:
+        raise ValueError("Add META_PAGE_ID and META_PAGE_ACCESS_TOKEN in Railway before connecting Facebook.")
+    version = re.sub(r"[^a-zA-Z0-9.]", "", config["graph_api_version"]) or "v25.0"
+    resource = str(resource or "").strip("/")
+    url = f"https://graph.facebook.com/{version}/{resource}"
+    values = {str(key): str(value) for key, value in (fields or {}).items()}
+    values["access_token"] = config["access_token"]
+    encoded = urllib.parse.urlencode(values).encode("utf-8")
+    request = urllib.request.Request(
+        f"{url}?{encoded.decode('utf-8')}" if method == "GET" else url,
+        data=None if method == "GET" else encoded,
+        method=method,
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read().decode("utf-8", "replace")
+            payload = json.loads(body or "{}")
+            return payload if isinstance(payload, dict) else {}
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", "replace")
+        detail = safe_meta_error(error.code, body, config["access_token"])
+        raise RuntimeError(json.dumps(detail)) from None
+    except urllib.error.URLError as error:
+        raise RuntimeError(json.dumps({"status": 0, "message": f"Meta connection failed: {error.reason}", "type": "NetworkError", "code": ""})) from None
+
+
+def facebook_test_page_connection():
+    config = meta_page_config()
+    payload = facebook_graph_request("GET", config["page_id"], {"fields": "id,name"})
+    if str(payload.get("id") or "") != config["page_id"]:
+        raise RuntimeError(json.dumps({"status": 0, "message": "Meta returned a different Page than the configured Page ID.", "type": "PageMismatch", "code": ""}))
+    return {"id": payload.get("id", ""), "name": payload.get("name", "")}
+
+
+def facebook_publish_recruitment(draft):
+    config = meta_page_config()
+    payload = facebook_graph_request("POST", f"{config['page_id']}/feed", {"message": draft["message"]})
+    post_id = str(payload.get("id") or "")
+    if not post_id:
+        raise RuntimeError(json.dumps({"status": 0, "message": "Meta did not return a post ID.", "type": "InvalidResponse", "code": ""}))
+    return post_id
+
+
+def update_autopilot_config_fields(conn, key, updates):
+    row = conn.execute("SELECT config_json FROM automation_settings WHERE key=?", (key,)).fetchone()
+    if not row:
+        raise ValueError("Automation settings were not found.")
+    config = autopilot_config(row["config_json"])
+    config.update(updates)
+    conn.execute(
+        "UPDATE automation_settings SET config_json=?,updated_at=? WHERE key=?",
+        (json.dumps(config), utcnow().isoformat(), key),
+    )
+    return config
+
+
 def autopilot_snapshot(conn, key):
     if key == "cleaner_recruitment":
         applicants = conn.execute("SELECT COUNT(*) count FROM cleaner_applicants").fetchone()["count"]
@@ -2194,13 +2336,17 @@ def autopilot_payload():
         order = {item["key"]: index for index, item in enumerate(AUTOPILOT_AUTOMATIONS)}
         settings = []
         catalog_keys = set(order)
+        facebook = {}
         for row in conn.execute("SELECT * FROM automation_settings ORDER BY key").fetchall():
             item = dict(row)
             if item.get("key") not in catalog_keys:
                 continue
             item["enabled"] = bool(item.get("enabled"))
-            item["config"] = autopilot_config(item.get("config_json"))
-            item["mode"] = item["config"].get("mode", "Dry run")
+            full_config = autopilot_config(item.get("config_json"))
+            if item.get("key") == "cleaner_recruitment":
+                facebook = facebook_recruitment_state(full_config)
+            item["config"] = {key: value for key, value in full_config.items() if not str(key).startswith("_")}
+            item["mode"] = full_config.get("mode", "Dry run")
             item.update(autopilot_item_stats(conn, item["key"]))
             item.pop("config_json", None)
             settings.append(item)
@@ -2208,7 +2354,7 @@ def autopilot_payload():
         logs = [dict(row) for row in conn.execute("SELECT * FROM automation_logs ORDER BY id DESC LIMIT 80").fetchall()]
         runs = [dict(row) for row in conn.execute("SELECT * FROM automation_runs ORDER BY id DESC LIMIT 20").fetchall()]
         alerts = [dict(row) for row in conn.execute("SELECT * FROM automation_alerts WHERE resolved_at IS NULL ORDER BY id DESC LIMIT 20").fetchall()]
-    return {"automations": settings, "logs": logs, "runs": runs, "alerts": alerts}
+    return {"automations": settings, "logs": logs, "runs": runs, "alerts": alerts, "facebook": facebook}
 
 
 def initialise():
@@ -3001,6 +3147,22 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.fresh_launch_reset()
+        if path == "/api/admin/autopilot/cleaner_recruitment/facebook/draft":
+            if not self.require_admin():
+                return
+            return self.autopilot_facebook_draft()
+        if path == "/api/admin/autopilot/cleaner_recruitment/facebook/approve":
+            if not self.require_admin():
+                return
+            return self.autopilot_facebook_approve()
+        if path == "/api/admin/autopilot/cleaner_recruitment/facebook/test":
+            if not self.require_admin():
+                return
+            return self.autopilot_facebook_test()
+        if path == "/api/admin/autopilot/cleaner_recruitment/facebook/publish":
+            if not self.require_admin():
+                return
+            return self.autopilot_facebook_publish()
         if path.startswith("/api/admin/autopilot/") and path.endswith("/toggle"):
             if not self.require_admin():
                 return
@@ -3257,6 +3419,10 @@ class Handler(BaseHTTPRequestHandler):
             now = utcnow().isoformat()
             with connect() as conn:
                 ensure_autopilot_defaults(conn)
+                existing = conn.execute("SELECT config_json FROM automation_settings WHERE key=?", (key,)).fetchone()
+                existing_config = autopilot_config(existing["config_json"] if existing else "{}")
+                internal_config = {name: value for name, value in existing_config.items() if str(name).startswith("_")}
+                clean_config.update(internal_config)
                 conn.execute("UPDATE automation_settings SET config_json=?,updated_at=? WHERE key=?", (json.dumps(clean_config), now, key))
                 autopilot_log(conn, key, "Configuration saved", "Owner updated the Autopilot configuration.")
             return self.send_json(autopilot_payload())
@@ -3300,6 +3466,123 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return self.send_json({"error": "Autopilot dry run failed. Check the Needs attention panel."}, 500)
+
+    def autopilot_facebook_draft(self):
+        try:
+            self.read_json()
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                autopilot_log(conn, "cleaner_recruitment", "Facebook recruitment draft prepared", "A Page-only recruitment draft was prepared. Nothing was published.")
+            return self.send_json(autopilot_payload())
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def autopilot_facebook_approve(self):
+        try:
+            self.read_json()
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                row = conn.execute("SELECT config_json FROM automation_settings WHERE key='cleaner_recruitment'").fetchone()
+                config = autopilot_config(row["config_json"] if row else "{}")
+                draft = facebook_recruitment_draft(config)
+                update_autopilot_config_fields(conn, "cleaner_recruitment", {
+                    "_facebook_approved_draft_hash": draft["hash"],
+                    "_facebook_approved_at": utcnow().isoformat(),
+                    "_facebook_publish_state": "Approved",
+                })
+                autopilot_log(conn, "cleaner_recruitment", "Facebook recruitment draft approved", "The owner approved the exact draft currently shown. Nothing was published.")
+            return self.send_json(autopilot_payload())
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+
+    def autopilot_facebook_test(self):
+        try:
+            self.read_json()
+            page = facebook_test_page_connection()
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                update_autopilot_config_fields(conn, "cleaner_recruitment", {
+                    "_facebook_connection_checked_at": utcnow().isoformat(),
+                    "_facebook_connection_page_name": str(page.get("name") or ""),
+                })
+                autopilot_log(conn, "cleaner_recruitment", "Facebook Page connection verified", f"Read-only connection confirmed for {page.get('name') or 'the configured Page'}. No post was created.")
+            return self.send_json(autopilot_payload())
+        except ValueError as error:
+            return self.send_json({"error": str(error)}, 400)
+        except RuntimeError as error:
+            try:
+                detail = json.loads(str(error))
+                message = detail.get("message") or "Facebook connection failed."
+            except (TypeError, json.JSONDecodeError):
+                message = "Facebook connection failed."
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                autopilot_log(conn, "cleaner_recruitment", "Facebook Page connection failed", message, "Warning")
+                autopilot_alert_once(conn, "cleaner_recruitment", "Facebook Page connection needs attention", f"What happened: {message} What Sparkles tried: a read-only Page connection check. Recommended action: verify the Railway Meta Page variables, then test again. Open /admin/autopilot.")
+            return self.send_json({"error": message}, 502)
+
+    def autopilot_facebook_publish(self):
+        try:
+            data = self.read_json()
+            dry_run_passed = False
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                row = conn.execute("SELECT config_json FROM automation_settings WHERE key='cleaner_recruitment'").fetchone()
+                config = autopilot_config(row["config_json"] if row else "{}")
+                state = facebook_recruitment_state(config)
+                draft = state["draft"]
+                if not state["posting_enabled"]:
+                    return self.send_json({"error": "Facebook Page posting is disabled. Enable it in Cleaner Recruitment configuration first."}, 409)
+                if not state["approved"]:
+                    return self.send_json({"error": "Approve the current Facebook draft before publishing."}, 409)
+                if state["published"]:
+                    return self.send_json({"error": "This exact Facebook draft has already been published."}, 409)
+                if config.get("_facebook_publish_state") == "Publishing" and config.get("_facebook_publish_attempt_hash") == draft["hash"]:
+                    return self.send_json({"error": "The previous publish result is uncertain. Check the Facebook Page before trying again to avoid a duplicate post."}, 409)
+                if state["mode"].lower() != "live":
+                    update_autopilot_config_fields(conn, "cleaner_recruitment", {
+                        "_facebook_last_dry_run_at": utcnow().isoformat(),
+                        "_facebook_publish_state": "Dry run passed",
+                    })
+                    autopilot_log(conn, "cleaner_recruitment", "Facebook publish dry run passed", "The approved Page post passed safety checks. Nothing was published.")
+                    dry_run_passed = True
+                elif data.get("confirm") != "PUBLISH APPROVED FACEBOOK DRAFT":
+                    return self.send_json({"error": "Live Facebook publishing requires owner confirmation."}, 409)
+                elif not state["configured"]:
+                    return self.send_json({"error": "Add META_PAGE_ID and META_PAGE_ACCESS_TOKEN in Railway before publishing."}, 409)
+                else:
+                    update_autopilot_config_fields(conn, "cleaner_recruitment", {
+                        "_facebook_publish_state": "Publishing",
+                        "_facebook_publish_attempt_hash": draft["hash"],
+                        "_facebook_publish_attempted_at": utcnow().isoformat(),
+                    })
+            if dry_run_passed:
+                return self.send_json(autopilot_payload())
+            post_id = facebook_publish_recruitment(draft)
+            with connect() as conn:
+                update_autopilot_config_fields(conn, "cleaner_recruitment", {
+                    "_facebook_publish_state": "Published",
+                    "_facebook_last_published_hash": draft["hash"],
+                    "_facebook_last_published_at": utcnow().isoformat(),
+                    "_facebook_last_post_id": post_id,
+                    "_facebook_publish_attempt_hash": "",
+                })
+                autopilot_log(conn, "cleaner_recruitment", "Facebook recruitment post published", f"The approved recruitment draft was published to the configured Facebook Page. Post reference: {post_id}.")
+            return self.send_json(autopilot_payload())
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error)}, 400)
+        except RuntimeError as error:
+            try:
+                detail = json.loads(str(error))
+                message = detail.get("message") or "Facebook publishing failed."
+            except (TypeError, json.JSONDecodeError):
+                message = "Facebook publishing failed."
+            with connect() as conn:
+                ensure_autopilot_defaults(conn)
+                update_autopilot_config_fields(conn, "cleaner_recruitment", {"_facebook_publish_state": "Needs attention"})
+                autopilot_log(conn, "cleaner_recruitment", "Facebook recruitment publish failed", message, "Warning")
+                autopilot_alert_once(conn, "cleaner_recruitment", "Facebook recruitment post needs attention", f"What happened: {message} What Sparkles tried: publish the owner-approved Page post once. Recommended action: check the Facebook Page and Railway Meta variables before retrying. Open /admin/autopilot.")
+            return self.send_json({"error": message}, 502)
 
     def autopilot_resolve_alert(self, path):
         try:

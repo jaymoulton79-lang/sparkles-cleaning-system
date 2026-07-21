@@ -12,6 +12,7 @@ Copy `.env.example` to `.env` and replace every placeholder. At minimum set:
 - Stripe test or live secret and webhook signing secrets.
 - SMTP host, port, username, password and sender.
 - `REVIEW_URL` to the company review page.
+- `META_PAGE_ID`, `META_PAGE_ACCESS_TOKEN` and `META_GRAPH_API_VERSION` only when Facebook Page recruitment publishing is being enabled. The access token must be a long-lived Page token and must remain in Railway secrets.
 
 Environment variables override values saved by the setup wizard. Prefer the cloud provider's secret manager for production credentials. Never commit `.env`.
 
@@ -97,3 +98,16 @@ Application and HTTP access logs are emitted as JSON on stdout for ingestion by 
 - SMTP delivery failures
 
 The workflow monitor is available at `/admin/automations`.
+
+## 7. Facebook recruitment publishing
+
+The Facebook connection is intentionally fail-closed:
+
+1. Add `META_PAGE_ID`, a long-lived `META_PAGE_ACCESS_TOKEN`, and `META_GRAPH_API_VERSION=v25.0` to the Railway application service.
+2. Redeploy and open `/admin/autopilot`.
+3. Under Cleaner Recruitment, run **Test connection**. This is read-only and does not create a post.
+4. Keep **Facebook page posting** set to `Disabled` and **Facebook post mode** set to `Dry run` while reviewing the draft.
+5. Review and approve the exact draft, enable posting, then run the dry test.
+6. Only after the dry test passes, change Facebook post mode to `Live` and publish one harmless Page-only recruitment post with owner confirmation.
+
+Sparkles blocks a duplicate of the same approved draft. If a network response makes a live publish outcome uncertain, it stops and asks the owner to check the Page before retrying.

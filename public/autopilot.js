@@ -1,4 +1,4 @@
-let autopilotState = { automations: [], logs: [], runs: [], alerts: [] };
+let autopilotState = { automations: [], logs: [], runs: [], alerts: [], facebook: null };
 let activeConfigKey = null;
 
 const grid = document.getElementById('automationGrid');
@@ -11,6 +11,20 @@ const configTitle = document.getElementById('configTitle');
 const configKicker = document.getElementById('configKicker');
 const configFields = document.getElementById('configFields');
 const toast = document.getElementById('toast');
+const facebookDialog = document.getElementById('facebookDialog');
+const facebookDraftStatus = document.getElementById('facebookDraftStatus');
+const facebookDraftMessage = document.getElementById('facebookDraftMessage');
+const facebookDraftLink = document.getElementById('facebookDraftLink');
+const facebookPublishButton = document.getElementById('facebookPublishButton');
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 function showToast(message) {
   toast.textContent = message;
@@ -29,6 +43,36 @@ function fmtDate(value) {
 function automationName(key) {
   const item = autopilotState.automations.find((automation) => automation.key === key);
   return item ? item.name : key.replaceAll('_', ' ');
+}
+
+function facebookPanelMarkup() {
+  const facebook = autopilotState.facebook || {};
+  const connection = facebook.configured ? 'Railway credentials ready' : 'Railway setup required';
+  const approval = facebook.published ? 'Published' : facebook.approved ? 'Approved' : 'Draft not approved';
+  const publishLabel = String(facebook.mode || 'Dry run').toLowerCase() === 'live' ? 'Publish approved post' : 'Run safe dry test';
+  return `
+    <section class="facebook-panel" aria-label="Facebook Page recruitment">
+      <div class="facebook-panel-head">
+        <div>
+          <span class="facebook-icon" aria-hidden="true">f</span>
+          <strong>Facebook Page recruitment</strong>
+          <p>Prepare, approve and publish one Page post at a time.</p>
+        </div>
+        <span class="sp-badge ${facebook.configured ? 'sp-badge-success' : 'sp-badge-warning'}">${escapeHtml(connection)}</span>
+      </div>
+      <div class="facebook-status-grid">
+        <span><strong>Posting</strong>${facebook.posting_enabled ? 'Enabled' : 'Disabled'}</span>
+        <span><strong>Mode</strong>${escapeHtml(facebook.mode || 'Dry run')}</span>
+        <span><strong>Draft</strong>${escapeHtml(approval)}</span>
+      </div>
+      <div class="facebook-panel-actions">
+        <button class="sp-button sp-button-secondary" data-action="facebook-draft">Review draft</button>
+        <button class="sp-button sp-button-secondary" data-action="facebook-test">Test connection</button>
+        <button class="sp-button" data-action="facebook-publish" ${facebook.can_publish ? '' : 'disabled'}>${escapeHtml(publishLabel)}</button>
+      </div>
+      <small>Live publishing stays off until Railway credentials are connected, the exact draft is approved and Live mode is deliberately enabled.</small>
+    </section>
+  `;
 }
 
 async function api(path, options = {}) {
@@ -95,6 +139,7 @@ function renderAutomations() {
         <button class="sp-button sp-button-secondary" data-action="configure" data-key="${automation.key}">Configure</button>
         ${automation.key === 'cleaner_recruitment' ? '<a class="sp-button sp-button-secondary" href="/admin/ai-recruitment">Open Cleaner Recruitment</a>' : ''}
       </div>
+      ${automation.key === 'cleaner_recruitment' ? facebookPanelMarkup() : ''}
     </article>
   `).join('');
 }
@@ -169,11 +214,23 @@ function openConfig(key) {
   configKicker.textContent = automation.name;
   configTitle.textContent = 'Configure automation';
   const config = automation.config || {};
-  configFields.innerHTML = Object.keys(config).map((field) => `
-    <label>${field.replaceAll('_', ' ')}
-      <input name="${field}" value="${String(config[field]).replaceAll('"', '&quot;')}">
-    </label>
-  `).join('') || '<p>No configurable fields yet.</p>';
+  const choices = {
+    mode: ['Dry run', 'Live'],
+    facebook_page_posting: ['Disabled', 'Enabled'],
+    facebook_post_mode: ['Dry run', 'Live'],
+    facebook_post_frequency: ['Manual approval only'],
+  };
+  configFields.innerHTML = Object.keys(config).filter((field) => !field.startsWith('_')).map((field) => {
+    const label = field.replaceAll('_', ' ');
+    if (choices[field]) {
+      return `<label>${escapeHtml(label)}
+        <select name="${escapeHtml(field)}">${choices[field].map((option) => `<option value="${escapeHtml(option)}" ${String(config[field]) === option ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>
+      </label>`;
+    }
+    return `<label>${escapeHtml(label)}
+      <input name="${escapeHtml(field)}" value="${escapeHtml(config[field])}">
+    </label>`;
+  }).join('') || '<p>No configurable fields yet.</p>';
   configDialog.showModal();
 }
 
@@ -181,7 +238,7 @@ async function saveConfig(event) {
   event.preventDefault();
   if (!activeConfigKey) return;
   const config = {};
-  configFields.querySelectorAll('input').forEach((input) => {
+  configFields.querySelectorAll('input, select').forEach((input) => {
     config[input.name] = input.value;
   });
   autopilotState = await api(`/api/admin/autopilot/${activeConfigKey}/configure`, {
@@ -191,6 +248,53 @@ async function saveConfig(event) {
   configDialog.close();
   renderAll();
   showToast('Autopilot settings saved.');
+}
+
+function renderFacebookDialog() {
+  const facebook = autopilotState.facebook || {};
+  const draft = facebook.draft || {};
+  const state = facebook.published ? 'Published' : facebook.approved ? 'Approved and ready' : 'Awaiting approval';
+  facebookDraftStatus.innerHTML = `
+    <span class="sp-badge ${facebook.approved ? 'sp-badge-success' : 'sp-badge-warning'}">${escapeHtml(state)}</span>
+    <span>${escapeHtml(facebook.mode || 'Dry run')} · ${facebook.posting_enabled ? 'Posting enabled' : 'Posting disabled'}</span>
+  `;
+  facebookDraftMessage.textContent = draft.message || 'Draft unavailable.';
+  facebookDraftLink.href = draft.link || '#';
+  facebookPublishButton.textContent = String(facebook.mode || 'Dry run').toLowerCase() === 'live' ? 'Publish approved post' : 'Run safe dry test';
+  facebookPublishButton.disabled = !facebook.can_publish;
+}
+
+async function openFacebookDraft() {
+  autopilotState = await api('/api/admin/autopilot/cleaner_recruitment/facebook/draft', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  renderAll();
+  renderFacebookDialog();
+  facebookDialog.showModal();
+}
+
+async function approveFacebookDraft() {
+  autopilotState = await api('/api/admin/autopilot/cleaner_recruitment/facebook/approve', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  renderAll();
+  renderFacebookDialog();
+  showToast('The exact Facebook draft is approved. Nothing has been published.');
+}
+
+async function publishFacebookDraft() {
+  const facebook = autopilotState.facebook || {};
+  const live = String(facebook.mode || 'Dry run').toLowerCase() === 'live';
+  if (live && !window.confirm('Publish this exact recruitment post to the connected Sparkles Facebook Page now?')) return;
+  autopilotState = await api('/api/admin/autopilot/cleaner_recruitment/facebook/publish', {
+    method: 'POST',
+    body: JSON.stringify({ confirm: live ? 'PUBLISH APPROVED FACEBOOK DRAFT' : '' }),
+  });
+  renderAll();
+  renderFacebookDialog();
+  showToast(live ? 'Facebook recruitment post published.' : 'Dry test passed. Nothing was published.');
 }
 
 async function handleClick(event) {
@@ -230,6 +334,27 @@ async function handleClick(event) {
       });
       renderAll();
       showToast('Attention item resolved.');
+    }
+    if (action === 'facebook-draft') {
+      button.disabled = true;
+      await openFacebookDraft();
+    }
+    if (action === 'facebook-approve') {
+      button.disabled = true;
+      await approveFacebookDraft();
+    }
+    if (action === 'facebook-test') {
+      button.disabled = true;
+      autopilotState = await api('/api/admin/autopilot/cleaner_recruitment/facebook/test', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      renderAll();
+      showToast('Read-only Facebook Page connection verified.');
+    }
+    if (action === 'facebook-publish') {
+      button.disabled = true;
+      await publishFacebookDraft();
     }
   } catch (error) {
     showToast(error.message);

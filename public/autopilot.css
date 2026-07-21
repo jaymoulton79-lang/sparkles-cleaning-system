@@ -148,6 +148,112 @@
   flex-wrap:wrap;
 }
 
+.facebook-panel{
+  display:grid;
+  gap:14px;
+  padding:18px;
+  border:1px solid rgba(24,119,242,.2);
+  border-radius:22px;
+  background:linear-gradient(145deg,rgba(236,244,255,.96),rgba(255,255,255,.94));
+}
+
+.facebook-panel-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+}
+
+.facebook-panel-head > div{
+  display:grid;
+  grid-template-columns:auto 1fr;
+  column-gap:10px;
+  align-items:center;
+}
+
+.facebook-panel-head p{
+  grid-column:2;
+  margin-top:3px;
+  font-size:.86rem;
+}
+
+.facebook-icon{
+  grid-row:1/3;
+  display:grid;
+  place-items:center;
+  width:38px;
+  height:38px;
+  border-radius:13px;
+  background:#1877F2;
+  color:#fff;
+  font:bold 26px/1 Arial,sans-serif;
+}
+
+.facebook-status-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+
+.facebook-status-grid span{
+  padding:10px;
+  border-radius:14px;
+  background:#fff;
+  color:var(--sp-muted);
+  font-size:.82rem;
+}
+
+.facebook-status-grid strong{
+  display:block;
+  color:var(--sp-dark);
+}
+
+.facebook-panel-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.facebook-panel small,
+.facebook-safety-note{
+  color:var(--sp-muted);
+  line-height:1.45;
+}
+
+.facebook-draft-status{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:14px;
+  color:var(--sp-muted);
+}
+
+.facebook-draft-message{
+  margin:0;
+  padding:18px;
+  border:1px solid var(--sp-line);
+  border-radius:18px;
+  background:#fff;
+  color:var(--sp-dark);
+  font:inherit;
+  line-height:1.55;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+
+.facebook-draft-link{
+  display:inline-block;
+  margin-top:12px;
+  color:var(--sp-primary);
+  font-weight:900;
+}
+
+.facebook-safety-note{
+  margin:14px 0 0;
+  font-size:.9rem;
+}
+
 .toggle{
   width:64px;
   height:36px;
@@ -275,10 +381,14 @@
   font-weight:900;
 }
 
-.config-fields input{
+.config-fields input,
+.config-fields select{
   min-height:48px;
   padding:12px 14px;
   font:inherit;
+  border:1px solid var(--sp-line);
+  border-radius:14px;
+  background:#fff;
 }
 
 .config-actions{
@@ -339,8 +449,15 @@
     padding:24px;
   }
   .automation-actions .sp-button,
-  .automation-actions button{
+  .automation-actions button,
+  .facebook-panel-actions .sp-button,
+  .facebook-dialog-actions .sp-button{
     width:100%;
+  }
+  .facebook-panel-head,
+  .facebook-status-grid{
+    display:grid;
+    grid-template-columns:1fr;
   }
   .config-actions{
     display:grid;

@@ -32,6 +32,10 @@
 - [ ] Test cleaner acceptance, automatic assignment and double-booking prevention.
 - [ ] Verify a 24-hour reminder in a staging environment.
 - [ ] Force one workflow failure and confirm automatic and manual retry behavior.
+- [ ] Store the long-lived Facebook Page token in Railway only; never in source code or the setup database.
+- [ ] Verify the Autopilot Facebook connection using the read-only test.
+- [ ] Review and approve the exact recruitment draft, then pass a dry publish test.
+- [ ] Publish one owner-confirmed Page-only test post before enabling live Facebook recruitment posting.
 
 ## Infrastructure
 

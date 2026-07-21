@@ -83,6 +83,20 @@ The automation engine runs inside the server and is monitored at `http://localho
 
 For Railway production email, use Resend: set `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, and `EMAIL_FROM` to a verified Resend sender such as `Sparkles Cleaning <bookings@sparkles-cleaning-cambridge.co.uk>`. `SMTP_FROM` remains supported as a fallback for older deployments. Existing booking, owner, cleaner, reminder and invoice emails use the same delivery path.
 
+### Facebook recruitment connection
+
+Sparkles Autopilot can prepare, approve, dry-run and publish a recruitment post to the connected Sparkles Facebook Page. Credentials are read from the server environment only and are never returned by the Autopilot API.
+
+Add these variables to the Railway application service:
+
+```text
+META_PAGE_ID=your_facebook_page_id
+META_PAGE_ACCESS_TOKEN=your_long_lived_page_access_token
+META_GRAPH_API_VERSION=v25.0
+```
+
+Use a long-lived Page access token with `pages_manage_posts`, `pages_read_engagement` and `pages_show_list`. Do not use a short-lived Graph API Explorer token in production. Keep Facebook Page posting set to **Disabled** and **Dry run** in `/admin/autopilot` until the read-only connection test succeeds. Every draft requires explicit owner approval, and the first live post requires a separate publish confirmation.
+
 SMTP is still available for local/dev providers with `EMAIL_PROVIDER=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `SMTP_FROM`. Without real email settings, emails are stored as local previews in the automation logs so the complete workflow can be tested safely.
 
 ## AI Office Manager
