@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY server.py automation.py migrate_sqlite_to_postgres.py ./
+COPY server.py automation.py operations_manager.py migrate_sqlite_to_postgres.py ./
 COPY public ./public
 RUN mkdir -p /app/data/uploads && useradd --create-home --uid 10001 sparkles && chown -R sparkles:sparkles /app
 
