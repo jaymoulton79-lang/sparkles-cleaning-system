@@ -1,7 +1,33 @@
 const params = new URLSearchParams(location.search);
 const source = params.get('source') || 'Website';
+const inviteCode = params.get('applicant') || '';
 document.querySelector('#sourceInput').value = source;
 document.querySelector('#sourceLabel').textContent = source;
+document.querySelector('#inviteCodeInput').value = inviteCode;
+
+async function loadPersonalInvite() {
+  if (!inviteCode) return;
+  const welcome = document.querySelector('#inviteWelcome');
+  try {
+    const response = await fetch(`/api/recruitment/invites/${encodeURIComponent(inviteCode)}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'This invitation is not valid.');
+    document.querySelector('#sourceInput').value = 'Indeed';
+    document.querySelector('#sourceLabel').textContent = 'Indeed invitation';
+    document.querySelector('[name="name"]').value = result.name || '';
+    document.querySelector('#inviteWelcomeTitle').textContent = `Welcome, ${result.name || 'cleaner applicant'}`;
+    document.querySelector('#inviteWelcomeText').textContent = result.completed
+      ? 'Your Sparkles application has already been received. You do not need to submit it again.'
+      : `Your personal application reference is ${result.applicant_identifier}. Complete the form below and Sparkles will track your progress automatically.`;
+    welcome.hidden = false;
+    if (result.completed) document.querySelector('#applyForm').hidden = true;
+  } catch (error) {
+    document.querySelector('#inviteWelcomeTitle').textContent = 'Invitation needs attention';
+    document.querySelector('#inviteWelcomeText').textContent = error.message;
+    welcome.hidden = false;
+    document.querySelector('#applyForm').hidden = true;
+  }
+}
 
 function checked(name) {
   return [...document.querySelectorAll(`[data-name="${name}"] input:checked`)].map(input => input.value);
@@ -59,11 +85,15 @@ document.querySelector('#applyForm').addEventListener('submit', async event => {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Could not submit application.');
     form.reset();
-    document.querySelector('#sourceInput').value = source;
-    document.querySelector('#sourceLabel').textContent = source;
+    document.querySelector('#sourceInput').value = inviteCode ? 'Indeed' : source;
+    document.querySelector('#sourceLabel').textContent = inviteCode ? 'Indeed invitation' : source;
+    document.querySelector('#inviteCodeInput').value = inviteCode;
     syncHiddenVerification();
     message.textContent = 'Thanks — your application has been sent. Sparkles Cleaning Cambridge will review it shortly.';
     message.className = 'form-message success';
+    if (result.applicant_identifier) {
+      message.textContent = `Thanks — your application ${result.applicant_identifier} has been received and scored for owner review.`;
+    }
   } catch (error) {
     message.textContent = error.message;
     message.className = 'form-message error';
@@ -72,3 +102,5 @@ document.querySelector('#applyForm').addEventListener('submit', async event => {
     button.textContent = oldText;
   }
 });
+
+loadPersonalInvite();

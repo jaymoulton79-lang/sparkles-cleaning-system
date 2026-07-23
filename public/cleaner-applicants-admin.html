@@ -30,6 +30,41 @@
       <a class="primary-small" href="/become-a-cleaner?source=website" target="_blank">Open application page</a>
     </div>
 
+    <section class="indeed-bridge" aria-labelledby="indeedBridgeTitle">
+      <div class="bridge-head">
+        <div>
+          <p class="eyebrow">Indeed Applicant Bridge</p>
+          <h2 id="indeedBridgeTitle">Move an Indeed applicant into Sparkles</h2>
+          <p>Enter the candidate's name, generate their personal link, then paste the message into Indeed yourself. Sparkles records every later step.</p>
+        </div>
+        <span class="manual-send-badge">Manual send through Indeed</span>
+      </div>
+      <form id="indeedInviteForm" class="bridge-form">
+        <label>Applicant name<input id="indeedApplicantName" name="name" required placeholder="e.g. Jane Smith" autocomplete="off"></label>
+        <label>Indeed reference (optional)<input id="indeedApplicantReference" name="indeed_reference" placeholder="Indeed candidate/reference ID" autocomplete="off"></label>
+        <label class="bridge-notes">Private note (optional)<input id="indeedApplicantNotes" name="notes" placeholder="Useful context from Indeed"></label>
+        <button class="primary-small" type="submit">Invite to Sparkles</button>
+      </form>
+      <p id="indeedInviteMessage" class="form-message"></p>
+      <div id="indeedInviteResult" class="invite-result" hidden>
+        <div class="invite-result-head"><strong id="indeedInviteIdentifier"></strong><span>Copy this message into Indeed</span></div>
+        <textarea id="indeedGeneratedMessage" rows="8" readonly></textarea>
+        <div class="mini-actions">
+          <button type="button" id="copyIndeedMessage">Copy personalised message</button>
+          <button type="button" id="copyIndeedLink">Copy application link</button>
+          <a id="openIndeedApplication" href="#" target="_blank" rel="noopener">Preview application</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="indeed-metrics" aria-label="Indeed applicant conversion metrics">
+      <div class="stat"><span>Indeed candidates invited</span><strong id="indeedInvited">—</strong></div>
+      <div class="stat"><span>Applications completed</span><strong id="indeedCompleted">—</strong></div>
+      <div class="stat"><span>Interview progress</span><strong id="indeedInterviewed">—</strong></div>
+      <div class="stat"><span>Converted to cleaners</span><strong id="indeedConverted">—</strong></div>
+      <div class="stat"><span>Application conversion</span><strong id="indeedConversion">—</strong></div>
+    </section>
+
     <section class="recruit-links">
       <h2>Recruitment links</h2>
       <p>Use these links in adverts, posts and WhatsApp messages so every applicant is tagged automatically.</p>

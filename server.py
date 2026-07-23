@@ -2111,6 +2111,30 @@ def recruitment_apply_link(source):
     return f"{public_url().rstrip('/')}/become-a-cleaner?source={urllib.parse.quote(normalise_recruitment_source(source))}"
 
 
+def indeed_applicant_identifier(invite_code):
+    compact = re.sub(r"[^A-Za-z0-9]", "", str(invite_code or ""))[:10].upper()
+    return f"IND-{compact}"
+
+
+def indeed_application_link(invite_code):
+    query = urllib.parse.urlencode({"source": "indeed", "applicant": str(invite_code or "").strip()})
+    return f"{public_url().rstrip('/')}/become-a-cleaner?{query}"
+
+
+def indeed_invitation_message(name, invite_code):
+    display_name = display_customer_name(name) or "there"
+    link = indeed_application_link(invite_code)
+    return (
+        f"Hi {display_name},\n\n"
+        "Thanks for your interest in cleaner opportunities with Sparkles Cleaning Cambridge. "
+        "To continue, please complete our short Sparkles application using your personal link:\n\n"
+        f"{link}\n\n"
+        "You can choose your availability, services and travel area. Completing the form does not guarantee approval, "
+        "and Sparkles will review your application before any cleaner account is created.\n\n"
+        "Smiles Come Standard."
+    )
+
+
 def recruitment_share_text(source="facebook", area="Cambridge and surrounding areas"):
     link = recruitment_link(source)
     return (
@@ -2506,11 +2530,26 @@ def initialise():
             "id_uploads": "TEXT NOT NULL DEFAULT '[]'",
             "proof_of_address_uploads": "TEXT NOT NULL DEFAULT '[]'",
             "driving_licence_uploads": "TEXT NOT NULL DEFAULT '[]'",
+            "external_reference": "TEXT NOT NULL DEFAULT ''",
+            "invitation_code": "TEXT",
+            "invitation_status": "TEXT NOT NULL DEFAULT 'Not invited'",
+            "invitation_count": "INTEGER NOT NULL DEFAULT 0",
+            "invitation_created_at": "TEXT",
+            "invitation_opened_at": "TEXT",
+            "application_completed_at": "TEXT",
+            "ai_score": "INTEGER",
+            "ai_recommendation": "TEXT",
+            "ai_scored_at": "TEXT",
+            "interview_status": "TEXT NOT NULL DEFAULT 'Not scheduled'",
+            "interview_updated_at": "TEXT",
+            "converted_at": "TEXT",
         }
         applicant_columns = {row[1] for row in conn.execute("PRAGMA table_info(cleaner_applicants)")}
         for column, definition in applicant_extra_columns.items():
             if column not in applicant_columns:
                 conn.execute(f"ALTER TABLE cleaner_applicants ADD COLUMN {column} {definition}")
+        conn.execute("""CREATE UNIQUE INDEX IF NOT EXISTS idx_cleaner_applicants_invitation_code
+            ON cleaner_applicants(invitation_code)""")
         conn.execute("""CREATE TABLE IF NOT EXISTS cleaner_applicant_timeline (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             applicant_id INTEGER NOT NULL REFERENCES cleaner_applicants(id),
@@ -2935,6 +2974,12 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.list_cleaner_payouts()
+        if path.startswith("/api/recruitment/invites/"):
+            return self.get_recruitment_invite(path)
+        if path == "/api/cleaner-applicants/metrics":
+            if not self.require_admin():
+                return
+            return self.cleaner_applicant_metrics()
         if path == "/api/cleaner-applicants":
             if not self.require_admin():
                 return
@@ -3249,6 +3294,14 @@ class Handler(BaseHTTPRequestHandler):
             if not self.require_admin():
                 return
             return self.import_cleaner_applicants()
+        if path == "/api/cleaner-applicants/indeed-invite":
+            if not self.require_admin():
+                return
+            return self.create_indeed_applicant_invite()
+        if path.startswith("/api/cleaner-applicants/") and path.endswith("/invite"):
+            if not self.require_admin():
+                return
+            return self.invite_existing_indeed_applicant(path)
         if path.startswith("/api/cleaner-applicants/") and path.endswith("/approve"):
             if not self.require_admin():
                 return
@@ -5066,6 +5119,170 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as error:
             return self.send_json({"error": str(error)}, 404)
 
+    def indeed_invite_payload(self, applicant):
+        code = str(applicant.get("invitation_code") or "").strip()
+        return {
+            "ok": True,
+            "applicant_id": applicant["id"],
+            "applicant_identifier": indeed_applicant_identifier(code),
+            "name": applicant["name"],
+            "source": "Indeed",
+            "link": indeed_application_link(code),
+            "message": indeed_invitation_message(applicant["name"], code),
+            "invitation_status": applicant.get("invitation_status") or "Generated",
+            "invitation_count": int(applicant.get("invitation_count") or 0),
+        }
+
+    def issue_indeed_applicant_invite(self, applicant_id=None, name="", external_reference="", notes=""):
+        now = utcnow().isoformat()
+        event = "Indeed invitation generated"
+        with connect() as conn:
+            applicant = None
+            if applicant_id:
+                applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+            elif external_reference:
+                applicant = conn.execute("""SELECT * FROM cleaner_applicants
+                    WHERE LOWER(source)='indeed' AND external_reference=?
+                    ORDER BY id DESC LIMIT 1""", (external_reference,)).fetchone()
+            if applicant:
+                applicant = dict(applicant)
+
+            if applicant and applicant["approved_cleaner_id"]:
+                raise ValueError("This applicant has already been converted to a cleaner.")
+            if applicant and applicant.get("application_completed_at"):
+                raise ValueError("This applicant has already completed the Sparkles application.")
+
+            if applicant:
+                code = str(applicant.get("invitation_code") or "").strip() or secrets.token_urlsafe(18)
+                resolved_name = str(name or applicant["name"] or "Indeed applicant").strip()
+                resolved_reference = str(external_reference or applicant.get("external_reference") or "").strip()[:160]
+                resolved_notes = str(notes or applicant.get("notes") or "").strip()
+                conn.execute("""UPDATE cleaner_applicants
+                    SET name=?, source='Indeed', status='Invited', notes=?, external_reference=?,
+                        invitation_code=?, invitation_status='Generated', invitation_count=COALESCE(invitation_count,0)+1,
+                        invitation_created_at=?, updated_at=?
+                    WHERE id=?""", (
+                    resolved_name, resolved_notes, resolved_reference, code, now, now, applicant["id"]
+                ))
+                applicant_id = applicant["id"]
+                event = "Indeed invitation regenerated"
+            else:
+                code = secrets.token_urlsafe(18)
+                resolved_name = str(name or "").strip()
+                if not resolved_name:
+                    raise ValueError("Enter the Indeed applicant's name.")
+                cursor = conn.execute("""INSERT INTO cleaner_applicants
+                    (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,
+                     dbs_status,insurance_status,source,status,notes,created_at,updated_at,external_reference,
+                     invitation_code,invitation_status,invitation_count,invitation_created_at,interview_status)
+                    VALUES (?,'','','','',5,0,'[]','[]','Unknown','Unknown','Indeed','Invited',?,?,?,?,?,'Generated',1,?,'Not scheduled')""", (
+                    resolved_name, str(notes or "").strip(), now, now,
+                    str(external_reference or "").strip()[:160], code, now
+                ))
+                applicant_id = cursor.lastrowid
+            row = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+            autopilot_log(conn, "cleaner_recruitment", event, f"{row['name']} received a tracked Indeed application link.")
+        applicant_timeline(applicant_id, event, f"Personal tracked link created as {indeed_applicant_identifier(row['invitation_code'])}")
+        return self.indeed_invite_payload(dict(row))
+
+    def create_indeed_applicant_invite(self):
+        try:
+            data = self.read_json()
+            result = self.issue_indeed_applicant_invite(
+                name=str(data.get("name") or "").strip(),
+                external_reference=str(data.get("indeed_reference") or "").strip(),
+                notes=str(data.get("notes") or "").strip(),
+            )
+            return self.send_json(result, 201)
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            return self.send_json({"error": str(error) or "Could not generate the Indeed invitation."}, 400)
+
+    def invite_existing_indeed_applicant(self, path):
+        try:
+            applicant_id = int(path.split("/")[3])
+            try:
+                data = self.read_json()
+            except ValueError:
+                data = {}
+            result = self.issue_indeed_applicant_invite(
+                applicant_id=applicant_id,
+                external_reference=str(data.get("indeed_reference") or "").strip(),
+            )
+            return self.send_json(result)
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError) as error:
+            return self.send_json({"error": str(error) or "Could not generate the Indeed invitation."}, 400)
+
+    def get_recruitment_invite(self, path):
+        try:
+            code = urllib.parse.unquote(path.split("/")[4]).strip()
+            if not code or len(code) > 120:
+                raise ValueError("Invalid recruitment invitation.")
+            opened_now = False
+            with connect() as conn:
+                applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE invitation_code=?", (code,)).fetchone()
+                if not applicant:
+                    return self.send_json({"error": "This recruitment invitation is not valid."}, 404)
+                applicant = dict(applicant)
+                if not applicant.get("invitation_opened_at"):
+                    opened_at = utcnow().isoformat()
+                    conn.execute("""UPDATE cleaner_applicants
+                        SET invitation_opened_at=?, invitation_status=CASE WHEN application_completed_at IS NULL THEN 'Opened' ELSE invitation_status END,
+                            updated_at=? WHERE id=?""", (opened_at, opened_at, applicant["id"]))
+                    opened_now = True
+                applicant = dict(conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant["id"],)).fetchone())
+            if opened_now:
+                applicant_timeline(applicant["id"], "Indeed invitation opened", "Applicant opened their personal Sparkles application link")
+            return self.send_json({
+                "ok": True,
+                "applicant_identifier": indeed_applicant_identifier(code),
+                "name": applicant["name"],
+                "source": "Indeed",
+                "completed": bool(applicant.get("application_completed_at")),
+            })
+        except (ValueError, TypeError, IndexError) as error:
+            return self.send_json({"error": str(error) or "Invalid recruitment invitation."}, 400)
+
+    def cleaner_applicant_metrics(self):
+        with connect() as conn:
+            rows = [dict(row) for row in conn.execute("SELECT * FROM cleaner_applicants ORDER BY id DESC").fetchall()]
+        indeed_rows = [row for row in rows if normalise_recruitment_source(row.get("source")) == "indeed"]
+        invited = [row for row in indeed_rows if row.get("invitation_code")]
+        completed = [row for row in invited if row.get("application_completed_at")]
+        scored = [row for row in invited if row.get("ai_scored_at")]
+        interviewed = [row for row in invited if str(row.get("interview_status") or "Not scheduled") != "Not scheduled"]
+        approved = [row for row in invited if row.get("approved_cleaner_id") or row.get("status") in {"Approved", "Added as Cleaner"}]
+        converted = [row for row in invited if row.get("approved_cleaner_id")]
+        candidate_total = len(invited)
+        return self.send_json({
+            "source": "Indeed",
+            "indeed_records": len(indeed_rows),
+            "invited_candidates": candidate_total,
+            "invitations_generated": sum(max(1, int(row.get("invitation_count") or 0)) for row in invited),
+            "invitations_opened": len([row for row in invited if row.get("invitation_opened_at")]),
+            "applications_completed": len(completed),
+            "ai_scored": len(scored),
+            "interviewed": len(interviewed),
+            "approved": len(approved),
+            "converted_to_cleaner": len(converted),
+            "application_conversion_rate": round((len(completed) / candidate_total) * 100, 1) if candidate_total else 0,
+            "cleaner_conversion_rate": round((len(converted) / candidate_total) * 100, 1) if candidate_total else 0,
+        })
+
+    def store_cleaner_applicant_score(self, applicant_id):
+        with connect() as conn:
+            applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
+        if not applicant:
+            raise ValueError("Applicant not found.")
+        result = self.score_cleaner_applicant(dict(applicant))
+        scored_at = utcnow().isoformat()
+        with connect() as conn:
+            conn.execute("""UPDATE cleaner_applicants
+                SET ai_score=?, ai_recommendation=?, ai_scored_at=?, updated_at=? WHERE id=?""", (
+                result["score"], result["recommendation"], scored_at, scored_at, applicant_id
+            ))
+        applicant_timeline(applicant_id, "Sparkles AI score recorded", f"{result['recommendation']} ({result['score']}/100)")
+        return result
+
     def create_cleaner_applicant(self):
         try:
             uploads = {"id_uploads": [], "proof_of_address_uploads": [], "driving_licence_uploads": []}
@@ -5117,47 +5334,67 @@ class Handler(BaseHTTPRequestHandler):
             radius = float(data.get("travel_radius") or 5)
             rate = float(data.get("hourly_rate") or 0)
             source = str(data.get("source") or "Website").strip()[:80] or "Website"
+            invitation_code = str(data.get("invite_code") or "").strip()
             verification = cleaner_verification_payload(data)
             now = datetime.now(timezone.utc).isoformat()
             with connect() as conn:
-                cursor = conn.execute("""
-                    INSERT INTO cleaner_applicants
-                    (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at,
-                     identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle,
-                     right_to_work_status,short_intro,id_uploads,proof_of_address_uploads,driving_licence_uploads)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (
-                    data["name"].strip(),
-                    data["phone"].strip(),
-                    data["email"].strip().lower(),
-                    data["postcode"].strip().upper(),
-                    str(data.get("experience") or "").strip(),
-                    radius,
-                    rate,
-                    json.dumps(data.get("availability") or []),
-                    json.dumps(data.get("services") or []),
-                    str(data.get("dbs_status") or "Unknown").strip(),
-                    str(data.get("insurance_status") or "Unknown").strip(),
-                    source,
-                    "New",
-                    str(data.get("notes") or "").strip(),
-                    now,
-                    now,
-                    verification["identity_verified"],
-                    verification["right_to_work_verified"],
-                    verification["proof_of_address_verified"],
-                    verification["travel_method"],
-                    verification["driving_licence_status"],
-                    verification["has_own_vehicle"],
-                    str(data.get("right_to_work_status") or "Not provided").strip(),
-                    str(data.get("short_intro") or "").strip(),
-                    json.dumps(uploads["id_uploads"] or data.get("id_uploads") or []),
-                    json.dumps(uploads["proof_of_address_uploads"] or data.get("proof_of_address_uploads") or []),
-                    json.dumps(uploads["driving_licence_uploads"] or data.get("driving_licence_uploads") or []),
-                ))
-                applicant_id = cursor.lastrowid
+                invited_applicant = None
+                if invitation_code:
+                    invited_applicant = conn.execute(
+                        "SELECT * FROM cleaner_applicants WHERE invitation_code=?", (invitation_code,)
+                    ).fetchone()
+                    if not invited_applicant:
+                        raise ValueError("This Indeed invitation is not valid. Ask Sparkles for a fresh invitation.")
+                    invited_applicant = dict(invited_applicant)
+                    if invited_applicant.get("application_completed_at"):
+                        raise ValueError("This Sparkles application has already been completed.")
+                    source = "Indeed"
+                    conn.execute("""UPDATE cleaner_applicants SET
+                        name=?,phone=?,email=?,postcode=?,experience=?,travel_radius=?,hourly_rate=?,availability=?,services=?,
+                        dbs_status=?,insurance_status=?,source='Indeed',status='New',updated_at=?,
+                        identity_verified=?,right_to_work_verified=?,proof_of_address_verified=?,travel_method=?,driving_licence_status=?,has_own_vehicle=?,
+                        right_to_work_status=?,short_intro=?,id_uploads=?,proof_of_address_uploads=?,driving_licence_uploads=?,
+                        invitation_status='Completed',application_completed_at=?
+                        WHERE id=?""", (
+                        data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), data["postcode"].strip().upper(),
+                        str(data.get("experience") or "").strip(), radius, rate,
+                        json.dumps(data.get("availability") or []), json.dumps(data.get("services") or []),
+                        str(data.get("dbs_status") or "Unknown").strip(), str(data.get("insurance_status") or "Unknown").strip(), now,
+                        verification["identity_verified"], verification["right_to_work_verified"], verification["proof_of_address_verified"],
+                        verification["travel_method"], verification["driving_licence_status"], verification["has_own_vehicle"],
+                        str(data.get("right_to_work_status") or "Not provided").strip(), str(data.get("short_intro") or "").strip(),
+                        json.dumps(uploads["id_uploads"] or data.get("id_uploads") or []),
+                        json.dumps(uploads["proof_of_address_uploads"] or data.get("proof_of_address_uploads") or []),
+                        json.dumps(uploads["driving_licence_uploads"] or data.get("driving_licence_uploads") or []),
+                        now, invited_applicant["id"]
+                    ))
+                    applicant_id = invited_applicant["id"]
+                    event = "Indeed application completed"
+                    detail = f"Tracked application completed as {indeed_applicant_identifier(invitation_code)}"
+                else:
+                    cursor = conn.execute("""INSERT INTO cleaner_applicants
+                        (name,phone,email,postcode,experience,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,source,status,notes,created_at,updated_at,
+                         identity_verified,right_to_work_verified,proof_of_address_verified,travel_method,driving_licence_status,has_own_vehicle,
+                         right_to_work_status,short_intro,id_uploads,proof_of_address_uploads,driving_licence_uploads,application_completed_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                        data["name"].strip(), data["phone"].strip(), data["email"].strip().lower(), data["postcode"].strip().upper(),
+                        str(data.get("experience") or "").strip(), radius, rate,
+                        json.dumps(data.get("availability") or []), json.dumps(data.get("services") or []),
+                        str(data.get("dbs_status") or "Unknown").strip(), str(data.get("insurance_status") or "Unknown").strip(),
+                        source, "New", str(data.get("notes") or "").strip(), now, now,
+                        verification["identity_verified"], verification["right_to_work_verified"], verification["proof_of_address_verified"],
+                        verification["travel_method"], verification["driving_licence_status"], verification["has_own_vehicle"],
+                        str(data.get("right_to_work_status") or "Not provided").strip(), str(data.get("short_intro") or "").strip(),
+                        json.dumps(uploads["id_uploads"] or data.get("id_uploads") or []),
+                        json.dumps(uploads["proof_of_address_uploads"] or data.get("proof_of_address_uploads") or []),
+                        json.dumps(uploads["driving_licence_uploads"] or data.get("driving_licence_uploads") or []), now
+                    ))
+                    applicant_id = cursor.lastrowid
+                    event = "Application submitted"
+                    detail = f"{source} application received"
                 autopilot_log(conn, "cleaner_recruitment", "Cleaner application captured", f"{data['name'].strip()} applied from {source}.")
-            applicant_timeline(applicant_id, "Application submitted", f"{source} application received")
+            applicant_timeline(applicant_id, event, detail)
+            score = self.store_cleaner_applicant_score(applicant_id)
             try:
                 send_cleaner_applicant_confirmation(applicant_id)
             except Exception as email_error:
@@ -5166,7 +5403,13 @@ class Handler(BaseHTTPRequestHandler):
                 send_owner_applicant_alert(applicant_id)
             except Exception as owner_error:
                 logger.warning(json.dumps({"cleaner_applicant_owner_alert": "failed", "applicant_id": applicant_id, "error": str(owner_error)}))
-            return self.send_json({"ok": True, "id": applicant_id}, 201)
+            return self.send_json({
+                "ok": True,
+                "id": applicant_id,
+                "applicant_identifier": indeed_applicant_identifier(invitation_code) if invitation_code else None,
+                "score": score["score"],
+                "recommendation": score["recommendation"],
+            }, 201)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return self.send_json({"error": str(error)}, 400)
 
@@ -5509,6 +5752,7 @@ class Handler(BaseHTTPRequestHandler):
                 applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
                 if not applicant:
                     return self.send_json({"error": "Applicant not found."}, 404)
+                applicant = dict(applicant)
             name = display_customer_name(applicant["name"])
             apply_source = applicant["source"] or "recruitment campaign"
             portal_link = f"{public_url().rstrip('/')}/become-a-cleaner?source=follow-up"
@@ -5623,20 +5867,35 @@ class Handler(BaseHTTPRequestHandler):
         try:
             applicant_id = int(path.split("/")[3])
             data = self.read_json()
-            allowed_statuses = {"New", "Contacted", "Interview", "Approved", "Rejected", "Added as Cleaner"}
+            allowed_statuses = {"Invited", "New", "Contacted", "Interview", "Approved", "Rejected", "Added as Cleaner"}
+            allowed_interview_statuses = {"Not scheduled", "Invited", "Scheduled", "Completed", "No show", "Declined"}
             status = str(data.get("status") or "").strip()
+            interview_status = str(data.get("interview_status") or "").strip()
             notes = str(data.get("notes") or "").strip()
             if status and status not in allowed_statuses:
                 raise ValueError("Invalid applicant status.")
+            if interview_status and interview_status not in allowed_interview_statuses:
+                raise ValueError("Invalid interview status.")
+            status_changed = False
+            interview_changed = False
             with connect() as conn:
                 applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
                 if not applicant:
                     return self.send_json({"error": "Applicant not found."}, 404)
+                applicant = dict(applicant)
+                status_changed = bool(status and status != applicant["status"])
+                interview_changed = bool(interview_status and interview_status != (applicant.get("interview_status") or "Not scheduled"))
+                interview_updated_at = utcnow().isoformat() if interview_changed else applicant.get("interview_updated_at")
                 conn.execute("""
                     UPDATE cleaner_applicants
-                    SET status=COALESCE(NULLIF(?,''),status), notes=?, updated_at=?
+                    SET status=COALESCE(NULLIF(?,''),status), notes=?,
+                        interview_status=COALESCE(NULLIF(?,''),interview_status), interview_updated_at=?, updated_at=?
                     WHERE id=?
-                """, (status, notes, datetime.now(timezone.utc).isoformat(), applicant_id))
+                """, (status, notes, interview_status, interview_updated_at, datetime.now(timezone.utc).isoformat(), applicant_id))
+            if status_changed:
+                applicant_timeline(applicant_id, "Applicant status updated", f"Status changed to {status}")
+            if interview_changed:
+                applicant_timeline(applicant_id, "Interview status updated", f"Interview status changed to {interview_status}")
             return self.send_json({"ok": True})
         except (ValueError, TypeError, json.JSONDecodeError, IndexError) as error:
             return self.send_json({"error": str(error) or "Invalid applicant update."}, 400)
@@ -5649,8 +5908,13 @@ class Handler(BaseHTTPRequestHandler):
                 applicant = conn.execute("SELECT * FROM cleaner_applicants WHERE id=?", (applicant_id,)).fetchone()
                 if not applicant:
                     return self.send_json({"error": "Applicant not found."}, 404)
+                applicant = dict(applicant)
                 if applicant["approved_cleaner_id"]:
                     return self.send_json({"error": "Applicant is already added as a cleaner."}, 409)
+                if not all(str(applicant.get(field) or "").strip() for field in ("name", "phone", "email", "postcode")):
+                    raise ValueError("The applicant must complete the Sparkles application before approval.")
+                if not json.loads(applicant.get("availability") or "[]") or not json.loads(applicant.get("services") or "[]"):
+                    raise ValueError("The applicant must provide availability and services before approval.")
                 verification = cleaner_verification_payload(dict(applicant))
                 cursor = conn.execute("""INSERT INTO cleaners
                     (name,phone,email,postcode,travel_radius,hourly_rate,availability,services,dbs_status,insurance_status,active,created_at,
@@ -5678,9 +5942,11 @@ class Handler(BaseHTTPRequestHandler):
                 cleaner_id = cursor.lastrowid
                 conn.execute("""
                     UPDATE cleaner_applicants
-                    SET status='Added as Cleaner', approved_cleaner_id=?, updated_at=?
+                    SET status='Added as Cleaner',
+                        invitation_status=CASE WHEN invitation_code IS NOT NULL THEN 'Converted' ELSE invitation_status END,
+                        approved_cleaner_id=?, converted_at=?, updated_at=?
                     WHERE id=?
-                """, (cleaner_id, datetime.now(timezone.utc).isoformat(), applicant_id))
+                """, (cleaner_id, datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat(), applicant_id))
             applicant_timeline(applicant_id, "Approved as cleaner", f"Cleaner account #{cleaner_id} created")
             invite = send_cleaner_invitation_email(cleaner_id)
             applicant_timeline(applicant_id, "Cleaner invite sent", "Secure Cleaner Portal setup invitation sent")
