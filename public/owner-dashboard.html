@@ -31,12 +31,47 @@
       <div>
         <div class="sp-kicker">Sparkles Owner Command Centre</div>
         <h1>Good morning, Luke</h1>
-        <p>Everything is running smoothly today.</p>
+        <p id="ownerHealthMessage">Checking the latest operational picture…</p>
       </div>
       <button class="refresh-button sp-button" id="refreshDashboard">Refresh</button>
     </div>
     <section class="owner-grid" id="metricGrid">
       <div class="owner-card loading sp-loader"><span class="sp-spinner"></span>Loading your Sparkles Owner Command Centre…</div>
+    </section>
+    <section class="operations-manager sp-card" aria-labelledby="operationsManagerTitle">
+      <div class="operations-head">
+        <div>
+          <div class="sp-kicker">Sparkles Operations Manager</div>
+          <h2 id="operationsManagerTitle">Business Health</h2>
+          <p>A read-only operational view. Sparkles will only highlight records that may need your attention.</p>
+        </div>
+        <div class="operations-health-pill is-loading" id="operationsHealth">Checking…</div>
+      </div>
+      <div class="operations-summary" id="operationsSummary">
+        <div class="operations-summary-card"><span>Today's Revenue</span><strong>—</strong></div>
+        <div class="operations-summary-card"><span>Bookings Today</span><strong>—</strong></div>
+        <div class="operations-summary-card"><span>Available Cleaners</span><strong>—</strong></div>
+        <div class="operations-summary-card"><span>Jobs Awaiting Assignment</span><strong>—</strong></div>
+        <div class="operations-summary-card"><span>Outstanding Balances</span><strong>—</strong></div>
+      </div>
+      <div class="operations-groups">
+        <article class="operations-group operations-critical">
+          <div class="operations-group-title"><h3>Critical Issues</h3><span id="criticalCount">0</span></div>
+          <div class="operations-list" id="criticalIssues"><div class="operations-empty">Checking critical issues…</div></div>
+        </article>
+        <article class="operations-group operations-attention">
+          <div class="operations-group-title"><h3>Needs Attention</h3><span id="attentionCount">0</span></div>
+          <div class="operations-list" id="attentionIssues"><div class="operations-empty">Checking items needing attention…</div></div>
+        </article>
+        <article class="operations-group operations-suggested">
+          <div class="operations-group-title"><h3>Suggested Actions</h3><span id="suggestedCount">0</span></div>
+          <div class="operations-list" id="suggestedActions"><div class="operations-empty">Preparing suggested actions…</div></div>
+        </article>
+        <article class="operations-group operations-activity">
+          <div class="operations-group-title"><h3>Recent Activity</h3><span id="activityCount">0</span></div>
+          <div class="operations-list" id="recentOperationsActivity"><div class="operations-empty">Loading recent activity…</div></div>
+        </article>
+      </div>
     </section>
     <section class="owner-layout">
       <article class="owner-panel sp-card"><div class="panel-head"><div><h2>Revenue this week</h2><p>Successful payments recorded each day.</p></div></div><div class="bar-chart" id="revenueChart"></div></article>

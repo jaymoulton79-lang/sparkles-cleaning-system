@@ -2,6 +2,11 @@
 
 A mobile-friendly customer booking form and simple admin dashboard. Bookings and photo metadata are stored in a local SQLite database.
 
+The Owner Command Centre includes a read-only Sparkles Operations Manager panel.
+It reuses the existing dashboard metrics and surfaces critical issues, items
+needing attention, suggested actions and recent activity. See
+`OPERATIONS_MANAGER.md` and `OPERATIONS_MANAGER_MANUAL_TEST.md`.
+
 ## Run
 
 ```powershell

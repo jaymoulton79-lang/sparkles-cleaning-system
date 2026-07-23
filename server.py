@@ -23,6 +23,7 @@ import io
 from email.message import EmailMessage
 from email.utils import parseaddr
 import automation
+from operations_manager import build_operations_summary
 from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
 from email.policy import default
@@ -4649,7 +4650,7 @@ class Handler(BaseHTTPRequestHandler):
             }
 
         conversion_rate = round((converted_bookings / total_bookings) * 100, 1) if total_bookings else 0
-        return {
+        payload = {
             "as_of": utcnow().isoformat(),
             "database": database_info,
             "cards": {
@@ -4676,6 +4677,12 @@ class Handler(BaseHTTPRequestHandler):
             "upcoming": upcoming_rows,
             "reviews": recent_reviews
         }
+        payload["operations_manager"] = build_operations_summary(
+            connector,
+            payload,
+            now=datetime.now(business_tz),
+        )
+        return payload
 
     def owner_dashboard(self):
         return self.send_json(self.owner_dashboard_payload())

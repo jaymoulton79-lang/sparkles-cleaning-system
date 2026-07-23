@@ -6,6 +6,9 @@ const revenueChart=document.querySelector('#revenueChart');
 const statusChart=document.querySelector('#statusChart');
 const upcomingJobs=document.querySelector('#upcomingJobs');
 const recentReviews=document.querySelector('#recentReviews');
+const ownerHealthMessage=document.querySelector('#ownerHealthMessage');
+const operationsHealth=document.querySelector('#operationsHealth');
+const operationsSummary=document.querySelector('#operationsSummary');
 
 const metricConfig=[
   ['Revenue Today','revenue_today','money','Successful payments today'],
@@ -42,7 +45,7 @@ function renderRevenue(days){
   }).join('');
 }
 
-function renderAiSummary(cards){
+function renderAiSummary(cards,health){
   const waiting=Number(cards.waiting_assignment||0);
   const cleaners=Number(cards.active_cleaners||0);
   const reviews=Number(cards.ai_waiting_review||0);
@@ -53,7 +56,7 @@ function renderAiSummary(cards){
       <p>${waiting} booking${waiting===1?'':'s'} require assigning.</p>
       <p>${cleaners} cleaner${cleaners===1?'':'s'} available.</p>
       <p>${reviews} Sparkles AI conversation${reviews===1?'':'s'} waiting for review.</p>
-      <p>Everything is running smoothly.</p>
+      <p>${esc(health?.message||'Your operational view is up to date.')}</p>
     </div>
   `;
 }
@@ -78,6 +81,68 @@ function renderReviews(rows){
   `).join(''):'<div class="empty-mini">No customer reviews recorded yet.</div>';
 }
 
+function issueListMarkup(items,emptyMessage){
+  return items.length?items.map(issue=>{
+    const related=issue.related_record?.reference||issue.related_record?.id||'';
+    return `
+      <article class="operations-issue">
+        <div class="operations-issue-top">
+          <span class="operations-category">${esc(issue.category)}</span>
+          ${related?`<small>${esc(related)}</small>`:''}
+        </div>
+        <strong>${esc(issue.title)}</strong>
+        ${issue.detail?`<p>${esc(issue.detail)}</p>`:''}
+        <div class="operations-action">
+          <span>${esc(issue.recommended_action)}</span>
+          <a href="${esc(issue.admin_url||'/admin/dashboard')}">Open</a>
+        </div>
+      </article>
+    `;
+  }).join(''):`<div class="operations-empty">${esc(emptyMessage)}</div>`;
+}
+
+function renderOperationsManager(operations){
+  if(!operations){
+    operationsHealth.className='operations-health-pill is-attention';
+    operationsHealth.textContent='Unavailable';
+    ownerHealthMessage.textContent='The Operations Manager could not load. The main dashboard remains available.';
+    return;
+  }
+  const health=operations.business_health||{};
+  const summary=operations.summary||{};
+  const groups=operations.groups||{};
+  const critical=groups.critical||[];
+  const attention=groups.needs_attention||[];
+  const suggested=groups.suggested_actions||[];
+  const activity=groups.recent_activity||[];
+  const healthClass=health.status==='Critical'?'is-critical':health.status==='Needs Attention'?'is-attention':'is-healthy';
+  operationsHealth.className=`operations-health-pill ${healthClass}`;
+  operationsHealth.textContent=`${health.status||'Unknown'} · ${Number(health.score||0)}/100`;
+  ownerHealthMessage.textContent=health.message||'Your latest operational view is ready.';
+  const summaryCards=[
+    ["Today's Revenue",money(summary.today_revenue),'Successful payments today'],
+    ['Bookings Today',summary.bookings_today??0,'Scheduled for today'],
+    ['Available Cleaners',summary.available_cleaners??0,'Activated and available today'],
+    ['Jobs Awaiting Assignment',summary.jobs_awaiting_assignment??0,'Paid bookings needing a cleaner'],
+    ['Outstanding Balances',money(summary.outstanding_balances),'Customer balances still due']
+  ];
+  operationsSummary.innerHTML=summaryCards.map(([label,value,description])=>`
+    <article class="operations-summary-card">
+      <span>${esc(label)}</span>
+      <strong>${esc(value)}</strong>
+      <small>${esc(description)}</small>
+    </article>
+  `).join('');
+  document.querySelector('#criticalCount').textContent=critical.length;
+  document.querySelector('#attentionCount').textContent=attention.length;
+  document.querySelector('#suggestedCount').textContent=suggested.length;
+  document.querySelector('#activityCount').textContent=activity.length;
+  document.querySelector('#criticalIssues').innerHTML=issueListMarkup(critical,'No critical issues.');
+  document.querySelector('#attentionIssues').innerHTML=issueListMarkup(attention,'Nothing currently needs attention.');
+  document.querySelector('#suggestedActions').innerHTML=issueListMarkup(suggested,'No suggested actions right now.');
+  document.querySelector('#recentOperationsActivity').innerHTML=issueListMarkup(activity,'No recent activity recorded.');
+}
+
 function sessionExpired(){
   metricGrid.innerHTML='<div class="owner-card loading sp-loader">Your admin session expired. Redirecting to loginâ€¦</div>';
   setTimeout(()=>{location.href='/admin/login?expired=1'},350);
@@ -94,11 +159,13 @@ async function loadDashboard(){
     if(!r.ok)throw new Error(data.error||'Could not load dashboard.');
     renderMetrics(data.cards);
     renderRevenue(data.charts.revenue_days||[]);
-    renderAiSummary(data.cards);
+    renderAiSummary(data.cards,data.operations_manager?.business_health);
     renderUpcoming(data.upcoming||[]);
     renderReviews(data.reviews||[]);
+    renderOperationsManager(data.operations_manager);
   }catch(error){
     metricGrid.innerHTML='<div class="owner-card loading sp-loader">Could not load the Sparkles Owner Command Centre. Please refresh.</div>';
+    renderOperationsManager(null);
   }
 }
 
